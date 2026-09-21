@@ -20,7 +20,7 @@ Primary audience: prospective freelance clients evaluating the developer's abili
 - Native mobile app (responsive web only).
 
 ## Status
-Phase 0 (Project Scaffolding) complete. Next.js (App Router) + TypeScript + Tailwind CSS + ESLint are set up under `src/`, the planned base folder structure exists, and `.env.example` documents the required Supabase variables. Lint and build both pass. No Supabase project is connected yet and no auth/database features are implemented — that begins in Phase 1.
+Phase 0 (Project Scaffolding) complete. Phase 1 (Database & Auth Foundation) is partially complete: the `profiles`/`leads` schema, `updated_at` triggers, and Row Level Security policies are written as a Supabase migration under `supabase/migrations/` (not yet applied to the remote project). Supabase client helpers (browser/server) are in place and connected to a real project via `.env.local`. Admin auth UI and route protection are still pending.
 
 ## Tech Stack
 - **Framework:** Next.js (App Router)
@@ -160,11 +160,15 @@ Lightweight audit trail for admin actions on users/leads, useful for demoing "po
 ### Dashboard statistics
 No dedicated stats table for v1. The overview page computes aggregates on read (e.g., total users, total leads, leads by status, leads created this week) via SQL queries/views against `profiles` and `leads`. Revisit with a materialized view only if performance requires it.
 
-### Row Level Security (planned policy shape)
-- All tables: RLS enabled.
-- `profiles`: a user can read/update their own row; only `role = 'admin'` may read/update all rows.
-- `leads`: only `role = 'admin'` may read/write.
-- `activity_log`: only `role = 'admin'` may read; inserts performed via server-side logic using the admin's identity.
+### Row Level Security
+**Implemented** for `profiles` and `leads` in `supabase/migrations/20260921130000_initial_schema.sql` (not yet applied to the remote project):
+- Both tables: RLS enabled.
+- `profiles`: a user can read and update their own row. Self-service is limited to `full_name` and `avatar_url` — `email`, `role`, and `status` cannot be changed by the row's owner, and `id`/`created_at` cannot be changed by anyone, including admins. `updated_at` is not user-settable; it's stamped by a separate `before update` trigger on every update regardless of what the client sends. Admins can read/update all rows via a `public.is_admin()` helper.
+- `leads`: admin-only read/write (`for all` policy gated on `public.is_admin()`); no access for regular users, active or otherwise.
+- `public.is_admin()` returns true only when the caller's own profile has `role = 'admin'` **and** `status = 'active'`. It's `SECURITY DEFINER` with `search_path` pinned to `''` (every reference inside is schema-qualified) so a `profiles` RLS policy can check the caller's role without recursively re-triggering RLS on `profiles`, and so name resolution can't be hijacked via `search_path`. A disabled admin fails this check, which drops them to normal-user-equivalent access everywhere it's used — including on their own row, so a disabled admin cannot reactivate themselves.
+- `public.guard_profiles_protected_fields()` (trigger `enforce_profile_field_guard`) is the single enforcement point for the field-level rules above; it runs regardless of which RLS policy (`profiles_update_own` or `profiles_update_admin`) matched, so the column-level restrictions hold even though the policies themselves only gate row visibility, not individual columns. It runs `SECURITY INVOKER` (no elevated privilege) since it only reads the row already supplied and delegates the actual permission decision to `public.is_admin()`.
+
+**Not yet implemented:** `activity_log` remains deferred (see Open Questions) — only `role = 'admin'` would read it, with inserts via server-side logic, if it's added.
 
 ## Development Phases
 
@@ -172,7 +176,9 @@ No dedicated stats table for v1. The overview page computes aggregates on read (
    Initialize Next.js (App Router) + TypeScript + Tailwind. Set up ESLint/Prettier, base folder structure, `.env.example`, and connect the repo to a Supabase project.
 
 2. **Phase 1 — Database & Auth Foundation**
-   Write Supabase migrations for `profiles`, `leads` (and `activity_log` if in scope). Enable RLS and write policies. Configure Supabase Auth; implement admin login (email/password to start), session handling, and route protection middleware.
+   - [x] Write Supabase migrations for `profiles` and `leads`. Enable RLS and write policies (see Database Schema → Row Level Security).
+   - [ ] Apply the migration to the remote Supabase project.
+   - [ ] Configure Supabase Auth; implement admin login (email/password to start), session handling, and route protection via `src/proxy.ts`. **Not started.**
 
 3. **Phase 2 — App Shell & Design System**
    Build the base UI primitives (button, input, table, modal, badge, card) and the dashboard layout: responsive sidebar, topbar, mobile nav. No real data yet — static/placeholder content to lock in the visual design.
@@ -204,6 +210,9 @@ Each phase should be completed and reviewed before starting the next. Update thi
 ## Decisions Log
 - **2026-09-21** — Project defined: DashPilot, a portfolio-oriented admin dashboard (Next.js/TypeScript/Tailwind/Supabase/PostgreSQL). Folder architecture, database schema, and phased roadmap established. No application code written yet.
 - **2026-09-21** — Phase 0 complete: scaffolded with `create-next-app` (Next.js 16.3.5, App Router, TypeScript, Tailwind CSS v4, ESLint). Installed Next.js renamed the middleware file convention to `proxy` (`src/proxy.ts` replaces the deprecated `src/middleware.ts`); PROJECT.md updated to match. No Supabase packages installed and no auth/DB logic added yet.
+- **2026-09-21** — Supabase connection scaffolding: installed `@supabase/supabase-js` and `@supabase/ssr`; added `src/lib/supabase/client.ts` (browser) and `src/lib/supabase/server.ts` (server, cookie-based). `.env.example` documents `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (the newer publishable-key naming, replacing the legacy anon-key naming); `SUPABASE_SERVICE_ROLE_KEY` intentionally omitted since nothing server-side needs elevated privileges yet. `.env.local` holds real project credentials locally and is gitignored.
+- **2026-09-21** — Phase 1 database foundation: added `supabase/migrations/20260921130000_initial_schema.sql` defining `profiles`, `leads`, `updated_at` triggers, RLS policies, and a `SECURITY DEFINER` `public.is_admin()` helper to avoid recursive RLS. A `before update` trigger blocks non-admins from changing their own `role`. Migration is written and lint/build-verified locally but **not yet applied** to the remote Supabase project. Auth UI and route protection remain pending.
+- **2026-09-21** — Hardened the same (still-unapplied) migration in place rather than layering on a second migration: `is_admin()` now also requires `status = 'active'` (so disabled admins lose admin access everywhere, including reactivating themselves) and pins `search_path = ''`; the guard trigger (renamed `guard_profiles_protected_fields()` / `enforce_profile_field_guard`) was broadened from role-only to block `id`/`created_at` changes for everyone and `email`/`role`/`status` changes for anyone who isn't an active admin, leaving only `full_name`/`avatar_url` freely self-editable. The guard function itself was demoted from `SECURITY DEFINER` to `SECURITY INVOKER` (least privilege — it only reads the row and delegates to `is_admin()`), and both `SECURITY DEFINER`/trigger functions had their default `PUBLIC` execute grants revoked.
 
 ## Open Questions
 - Auth method: email/password only, or also magic link / OAuth (e.g., Google) for a smoother demo login?
