@@ -20,7 +20,14 @@ Primary audience: prospective freelance clients evaluating the developer's abili
 - Native mobile app (responsive web only).
 
 ## Status
-Phase 0 (Project Scaffolding) complete. Phase 1 (Database & Auth Foundation) is partially complete: the `profiles`/`leads` schema, `updated_at` triggers, and Row Level Security policies are written as a Supabase migration under `supabase/migrations/` (not yet applied to the remote project). Supabase client helpers (browser/server) are in place and connected to a real project via `.env.local`. Admin auth UI and route protection are still pending.
+Phase 0 (Project Scaffolding) complete. **Phase 1 (Database & Auth Foundation) complete:**
+- Remote schema applied — `profiles`/`leads`, triggers, RLS policies, and the signup bootstrap trigger (`20260921130000_initial_schema.sql`).
+- Table-privilege fix applied — `authenticated` grants on `profiles`/`leads` (`20260921140000_grant_table_privileges.sql`), required alongside RLS (see Database Schema → PostgreSQL table grants).
+- First admin manually promoted and confirmed active.
+- Admin authentication working end-to-end (email/password login, server-side session handling via `src/lib/supabase/server.ts`, logout).
+- Route protection working (`src/proxy.ts` redirects unauthenticated requests to `/login`; the `(dashboard)` layout independently enforces active-admin-only authorization, showing "Access restricted" otherwise).
+
+User management, leads management, and the dashboard's real UI/statistics are not built yet — that's Phase 2+.
 
 ## Tech Stack
 - **Framework:** Next.js (App Router)
@@ -86,8 +93,9 @@ dashpilot/
 │   ├── lib/
 │   │   ├── supabase/
 │   │   │   ├── client.ts               # browser client
-│   │   │   ├── server.ts               # server component / server action client
-│   │   │   └── middleware.ts           # session refresh helper
+│   │   │   └── server.ts               # server component / server action client
+│   │   ├── auth/
+│   │   │   └── actions.ts              # login/logout server actions
 │   │   ├── validations/                # Zod schemas for forms and API input
 │   │   └── utils.ts                    # shared helpers (formatting, cn, etc.)
 │   ├── hooks/                          # client-side hooks (e.g., useDebouncedValue, useTablePagination)
@@ -161,7 +169,7 @@ Lightweight audit trail for admin actions on users/leads, useful for demoing "po
 No dedicated stats table for v1. The overview page computes aggregates on read (e.g., total users, total leads, leads by status, leads created this week) via SQL queries/views against `profiles` and `leads`. Revisit with a materialized view only if performance requires it.
 
 ### Row Level Security
-**Implemented** for `profiles` and `leads` in `supabase/migrations/20260921130000_initial_schema.sql` (not yet applied to the remote project):
+**Implemented** for `profiles` and `leads` in `supabase/migrations/20260921130000_initial_schema.sql` (applied to the remote project):
 - Both tables: RLS enabled.
 - `profiles`: a user can read and update their own row. Self-service is limited to `full_name` and `avatar_url` — `email`, `role`, and `status` cannot be changed by the row's owner, and `id`/`created_at` cannot be changed by anyone, including admins. `updated_at` is not user-settable; it's stamped by a separate `before update` trigger on every update regardless of what the client sends. Admins can read/update all rows via a `public.is_admin()` helper.
 - `leads`: admin-only read/write (`for all` policy gated on `public.is_admin()`); no access for regular users, active or otherwise.
@@ -169,6 +177,17 @@ No dedicated stats table for v1. The overview page computes aggregates on read (
 - `public.guard_profiles_protected_fields()` (trigger `enforce_profile_field_guard`) is the single enforcement point for the field-level rules above; it runs regardless of which RLS policy (`profiles_update_own` or `profiles_update_admin`) matched, so the column-level restrictions hold even though the policies themselves only gate row visibility, not individual columns. It runs `SECURITY INVOKER` (no elevated privilege) since it only reads the row already supplied and delegates the actual permission decision to `public.is_admin()`.
 
 **Not yet implemented:** `activity_log` remains deferred (see Open Questions) — only `role = 'admin'` would read it, with inserts via server-side logic, if it's added.
+
+### PostgreSQL table grants — required alongside RLS
+RLS and ordinary `GRANT` privileges are two separate, both-required layers: **RLS restricts which rows a role can see/touch; the base table `GRANT` decides whether that role can attempt the operation at all.** Postgres checks the table-level grant first — RLS is never even evaluated if the grant check fails. The initial migration enabled RLS and wrote policies but never granted table privileges to `authenticated`, so every request from a logged-in user failed with `42501: permission denied for table profiles` before RLS had a chance to run (diagnosed live via temporary auth diagnostics in the dashboard layout).
+
+Fixed in `supabase/migrations/20260921140000_grant_table_privileges.sql` (applied to the remote project):
+- `usage on schema public` → `authenticated`.
+- `profiles`: `select, update` → `authenticated` (no `insert`/`delete` — creation is the `handle_new_user()` trigger's job; deletion follows `auth.users` via cascade).
+- `leads`: `select, insert, update, delete` → `authenticated`, with `leads_admin_all` RLS still deciding per row whether a given authenticated (non-admin) user's request actually succeeds.
+- `anon` explicitly has no table-level access to either table.
+
+No existing RLS policy changed. Both layers are necessary together: the grant alone would let every authenticated user attempt anything (RLS still narrows to their own row or admin-only, as already documented above); RLS alone, without the grant, denies everyone outright at the privilege check, which is exactly the bug this migration fixes.
 
 ### Signup → profile bootstrap
 When Supabase Auth inserts a new row into `auth.users` (i.e., on signup), an `after insert` trigger (`on_auth_user_created` → `public.handle_new_user()`) automatically inserts a matching `public.profiles` row: `id`/`email` copied from the new auth user, `full_name` read from `raw_user_meta_data ->> 'full_name'` if present, and `role`/`status` **hardcoded** to `'user'`/`'active'` — never taken from user-supplied metadata, so nobody can hand themselves `role: admin` at signup. This function must be `SECURITY DEFINER` (not optional here): `profiles` has no `INSERT` policy for `authenticated`/`anon`, so without elevated privilege the insert would simply fail for every signup.
@@ -187,10 +206,11 @@ This command is documented here and in the migration file as a placeholder only 
 1. **Phase 0 — Project Scaffolding**
    Initialize Next.js (App Router) + TypeScript + Tailwind. Set up ESLint/Prettier, base folder structure, `.env.example`, and connect the repo to a Supabase project.
 
-2. **Phase 1 — Database & Auth Foundation**
+2. **Phase 1 — Database & Auth Foundation** — complete
    - [x] Write Supabase migrations for `profiles` and `leads`. Enable RLS and write policies (see Database Schema → Row Level Security).
-   - [ ] Apply the migration to the remote Supabase project.
-   - [ ] Configure Supabase Auth; implement admin login (email/password to start), session handling, and route protection via `src/proxy.ts`. **Not started.**
+   - [x] Apply the migration to the remote Supabase project; first admin manually promoted via the Supabase SQL Editor.
+   - [x] Grant base table privileges to `authenticated` (RLS alone is not sufficient — see Database Schema → PostgreSQL table grants); applied to the remote project.
+   - [x] Configure Supabase Auth; implement admin login (email/password), session handling, and route protection via `src/proxy.ts`, plus active-admin-only authorization in the `(dashboard)` layout. Verified working end-to-end against the remote project.
 
 3. **Phase 2 — App Shell & Design System**
    Build the base UI primitives (button, input, table, modal, badge, card) and the dashboard layout: responsive sidebar, topbar, mobile nav. No real data yet — static/placeholder content to lock in the visual design.
@@ -226,6 +246,9 @@ Each phase should be completed and reviewed before starting the next. Update thi
 - **2026-09-21** — Phase 1 database foundation: added `supabase/migrations/20260921130000_initial_schema.sql` defining `profiles`, `leads`, `updated_at` triggers, RLS policies, and a `SECURITY DEFINER` `public.is_admin()` helper to avoid recursive RLS. A `before update` trigger blocks non-admins from changing their own `role`. Migration is written and lint/build-verified locally but **not yet applied** to the remote Supabase project. Auth UI and route protection remain pending.
 - **2026-09-21** — Hardened the same (still-unapplied) migration in place rather than layering on a second migration: `is_admin()` now also requires `status = 'active'` (so disabled admins lose admin access everywhere, including reactivating themselves) and pins `search_path = ''`; the guard trigger (renamed `guard_profiles_protected_fields()` / `enforce_profile_field_guard`) was broadened from role-only to block `id`/`created_at` changes for everyone and `email`/`role`/`status` changes for anyone who isn't an active admin, leaving only `full_name`/`avatar_url` freely self-editable. The guard function itself was demoted from `SECURITY DEFINER` to `SECURITY INVOKER` (least privilege — it only reads the row and delegates to `is_admin()`), and both `SECURITY DEFINER`/trigger functions had their default `PUBLIC` execute grants revoked.
 - **2026-09-21** — Added the signup → profile bootstrap: `public.handle_new_user()` (`SECURITY DEFINER`, required since `profiles` has no `INSERT` policy for `authenticated`/`anon`) fires `after insert` on `auth.users` and creates the matching `profiles` row with `role`/`status` hardcoded to `'user'`/`'active'` — never read from signup metadata, so a signup can't self-assign a role. No account is auto-promoted; the first admin is bootstrapped manually, once, via a documented `UPDATE` in the Supabase SQL Editor (placeholder email only — no real credential committed).
+- **2026-09-21** — Migration applied to the remote Supabase project; first admin manually promoted and confirmed active. Implemented Phase 1 auth: `src/lib/auth/actions.ts` (`login`/`logout` server actions using `signInWithPassword`/`signOut`), a real `(auth)/login` form, and `src/proxy.ts` rewritten to refresh the Supabase session and redirect unauthenticated requests to `/login` for every non-public path (via `supabase.auth.getUser()`, never `getSession()`). Authorization is a second, separate check in the `(dashboard)` layout: it queries the caller's own `profiles` row and renders an "Access restricted" screen (with sign-out) for anyone who isn't `role='admin' AND status='active'`, rather than looping them back to `/login`. Smoke-tested against the real Supabase project (unauthenticated `/` and `/users` both 307 to `/login`; `/login` renders 200) without using real credentials.
+- **2026-09-21** — Found (via a live diagnostic added to the `(dashboard)` layout after the active first admin still saw "Access restricted") that the layout's profile query was silently swallowing its Supabase error — `.single()`'s error was never checked, so a failed query and "no profile" were indistinguishable. Fixed that (switched to `.maybeSingle()` + explicit error capture, added temporary dev-only diagnostics), which surfaced the real root cause: `42501: permission denied for table profiles` — RLS was correctly configured, but `authenticated` had never been granted base table privileges on `profiles`/`leads`, so every request failed the privilege check before RLS was even evaluated. Wrote (not yet applied) `supabase/migrations/20260921140000_grant_table_privileges.sql` as a new migration — the already-applied initial migration is left untouched — granting `authenticated` `select, update` on `profiles` and full CRUD on `leads` (RLS still narrows both), with `anon` explicitly denied on both tables.
+- **2026-09-21** — Table-privilege migration applied to the remote project; admin login confirmed working end-to-end. Removed the temporary diagnostics from `(dashboard)/layout.tsx` (the always-on console log and the dev-only on-page panel), while keeping the underlying fix: the profile-lookup error is still captured (not discarded) and explicitly fails `isActiveAdmin` closed on a genuine query error, logging it server-side. **Phase 1 (Database & Auth Foundation) is complete.**
 
 ## Open Questions
 - Auth method: email/password only, or also magic link / OAuth (e.g., Google) for a smoother demo login?

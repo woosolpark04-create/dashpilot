@@ -1,11 +1,59 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
+import { createServerClient } from "@supabase/ssr";
 
-// Route protection placeholder. Session checks and redirects to
-// (auth)/login are planned for Phase 1 — no auth logic implemented yet.
-export function proxy() {
-  return NextResponse.next();
+const PUBLIC_PATHS = ["/login"];
+
+// Session refresh + coarse route protection. This only checks "is there a
+// valid Supabase session" and redirects to /login when there isn't one.
+// Authorization (is this session an active admin?) is a DB lookup against
+// `profiles`, and lives in the (dashboard) layout instead — keeping that out
+// of the proxy avoids a profile query on every single request, including
+// ones for public/static paths.
+export async function proxy(request: NextRequest) {
+  let response = NextResponse.next({ request });
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+          response = NextResponse.next({ request });
+          cookiesToSet.forEach(({ name, value, options }) =>
+            response.cookies.set(name, value, options),
+          );
+        },
+      },
+    },
+  );
+
+  // Always re-validate with getUser() (hits Supabase Auth), never
+  // getSession() (reads an unverified cookie) — this is also what
+  // refreshes an expiring session's cookies via setAll above.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const pathname = request.nextUrl.pathname;
+  const isPublicPath = PUBLIC_PATHS.some((path) => pathname.startsWith(path));
+
+  if (!user && !isPublicPath) {
+    return NextResponse.redirect(new URL("/login", request.url));
+  }
+
+  if (user && pathname === "/login") {
+    return NextResponse.redirect(new URL("/", request.url));
+  }
+
+  return response;
 }
 
 export const config = {
-  matcher: [],
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+  ],
 };
