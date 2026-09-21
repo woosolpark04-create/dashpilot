@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { logout } from "@/lib/auth/actions";
+import { AppShell } from "@/components/layout/app-shell";
 
 export default async function DashboardLayout({
   children,
@@ -22,7 +23,7 @@ export default async function DashboardLayout({
 
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
-    .select("role, status")
+    .select("role, status, full_name, email")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -59,20 +60,8 @@ export default async function DashboardLayout({
   }
 
   return (
-    <div className="min-h-screen">
-      <header className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
-        <span className="text-sm font-semibold text-gray-900">DashPilot</span>
-        <form action={logout}>
-          <button
-            type="submit"
-            className="text-sm text-gray-500 transition hover:text-gray-900"
-          >
-            Sign out
-          </button>
-        </form>
-      </header>
-      {/* Sidebar + nav shell planned for Phase 2 */}
-      <main className="p-6">{children}</main>
-    </div>
+    <AppShell name={profile?.full_name ?? ""} email={profile?.email ?? user.email ?? ""} logoutAction={logout}>
+      {children}
+    </AppShell>
   );
 }

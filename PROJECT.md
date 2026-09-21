@@ -27,7 +27,14 @@ Phase 0 (Project Scaffolding) complete. **Phase 1 (Database & Auth Foundation) c
 - Admin authentication working end-to-end (email/password login, server-side session handling via `src/lib/supabase/server.ts`, logout).
 - Route protection working (`src/proxy.ts` redirects unauthenticated requests to `/login`; the `(dashboard)` layout independently enforces active-admin-only authorization, showing "Access restricted" otherwise).
 
-User management, leads management, and the dashboard's real UI/statistics are not built yet — that's Phase 2+.
+**Phase 2 (App Shell & Design System) complete:**
+- Internal design system under `src/components/ui/`: `Button`, `Input`, `Select`, `Card` (+ sub-parts), `Badge`, `Table` (+ sub-parts), `Dialog` (native `<dialog>`-based), `EmptyState`, `Skeleton`.
+- App shell under `src/components/layout/`: `Sidebar` (persistent, desktop/tablet), `MobileNav` (slide-over drawer), `Topbar`, `AccountMenu` (with sign-out), and `AppShell` (client component holding the shared mobile-nav-open state), wired into `(dashboard)/layout.tsx` in place of the old bare header.
+- All six existing routes (`/`, `/users`, `/users/[id]`, `/leads`, `/leads/[id]`, `/settings`) restyled with the new components; `Users`/`Leads` list and detail pages use static demo data with visually-complete-but-inert search/filter/pagination controls — no real CRUD. `Settings` shows the actual signed-in admin's own profile (reusing the existing self-row RLS read, not new functionality) plus an `EmptyState` placeholder for future settings.
+- Added `clsx`, `tailwind-merge` (→ `cn()` helper in `src/lib/utils.ts`) and `lucide-react` (icons) as dependencies.
+- No database/RLS/auth changes in this phase.
+
+User management, leads management, and the dashboard's real statistics are not built yet — that's Phase 3+.
 
 ## Tech Stack
 - **Framework:** Next.js (App Router)
@@ -38,6 +45,7 @@ User management, leads management, and the dashboard's real UI/statistics are no
 - **Hosting (planned):** Vercel (app) + Supabase (managed DB/auth)
 - **Validation:** Zod (planned, for form and API input validation)
 - **Data fetching:** Server Components + Supabase server client for reads; server actions or route handlers for mutations
+- **UI utilities:** `clsx` + `tailwind-merge` (via `cn()` in `src/lib/utils.ts`) for conditional class composition; `lucide-react` for icons
 
 Decisions on additional libraries (charts, tables, form handling, testing) should be recorded in the Decisions Log below as they're made, rather than assumed in advance.
 
@@ -85,11 +93,26 @@ dashpilot/
 │   │   ├── layout.tsx                  # root layout
 │   │   └── globals.css
 │   ├── components/
-│   │   ├── ui/                         # design-system primitives: button, input, table, modal, badge, etc.
-│   │   ├── layout/                     # sidebar, topbar, nav, mobile nav
-│   │   ├── dashboard/                  # stat cards, charts, summary widgets
-│   │   ├── users/                      # user table, user form, user filters
-│   │   └── leads/                      # lead table, lead form, lead filters, status pipeline
+│   │   ├── ui/                         # design-system primitives (implemented, Phase 2)
+│   │   │   ├── button.tsx
+│   │   │   ├── input.tsx
+│   │   │   ├── select.tsx
+│   │   │   ├── card.tsx                # Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter
+│   │   │   ├── badge.tsx
+│   │   │   ├── table.tsx               # Table, TableHeader, TableBody, TableRow, TableHead, TableCell
+│   │   │   ├── dialog.tsx              # Dialog (native <dialog>-based) + Header/Title/Description/Footer
+│   │   │   ├── empty-state.tsx
+│   │   │   └── skeleton.tsx
+│   │   ├── layout/                     # app shell (implemented, Phase 2)
+│   │   │   ├── app-shell.tsx           # client: holds shared mobile-nav-open state
+│   │   │   ├── sidebar.tsx             # persistent nav, desktop/tablet
+│   │   │   ├── mobile-nav.tsx          # slide-over drawer, mobile
+│   │   │   ├── topbar.tsx
+│   │   │   ├── account-menu.tsx        # user menu + sign-out
+│   │   │   └── nav-items.ts            # shared nav config (Overview/Users/Leads/Settings)
+│   │   ├── dashboard/                  # stat cards, charts, summary widgets (Phase 3)
+│   │   ├── users/                      # user form, user filters (Phase 4 — table/list currently inline in the route)
+│   │   └── leads/                      # lead form, lead filters (Phase 5 — table/list currently inline in the route)
 │   ├── lib/
 │   │   ├── supabase/
 │   │   │   ├── client.ts               # browser client
@@ -212,8 +235,10 @@ This command is documented here and in the migration file as a placeholder only 
    - [x] Grant base table privileges to `authenticated` (RLS alone is not sufficient — see Database Schema → PostgreSQL table grants); applied to the remote project.
    - [x] Configure Supabase Auth; implement admin login (email/password), session handling, and route protection via `src/proxy.ts`, plus active-admin-only authorization in the `(dashboard)` layout. Verified working end-to-end against the remote project.
 
-3. **Phase 2 — App Shell & Design System**
-   Build the base UI primitives (button, input, table, modal, badge, card) and the dashboard layout: responsive sidebar, topbar, mobile nav. No real data yet — static/placeholder content to lock in the visual design.
+3. **Phase 2 — App Shell & Design System** — complete
+   - [x] Build the base UI primitives (button, input, select, card, badge, table, dialog, empty state, skeleton) under `src/components/ui/`.
+   - [x] Build the dashboard layout: responsive sidebar, topbar, mobile nav, account menu with sign-out, under `src/components/layout/`.
+   - [x] Restyle all existing routes with static/placeholder content to lock in the visual design. No real data yet.
 
 4. **Phase 3 — Dashboard Statistics**
    Build the overview page: stat cards (total users, total leads, leads by status, recent activity) backed by real aggregate queries.
@@ -249,6 +274,7 @@ Each phase should be completed and reviewed before starting the next. Update thi
 - **2026-09-21** — Migration applied to the remote Supabase project; first admin manually promoted and confirmed active. Implemented Phase 1 auth: `src/lib/auth/actions.ts` (`login`/`logout` server actions using `signInWithPassword`/`signOut`), a real `(auth)/login` form, and `src/proxy.ts` rewritten to refresh the Supabase session and redirect unauthenticated requests to `/login` for every non-public path (via `supabase.auth.getUser()`, never `getSession()`). Authorization is a second, separate check in the `(dashboard)` layout: it queries the caller's own `profiles` row and renders an "Access restricted" screen (with sign-out) for anyone who isn't `role='admin' AND status='active'`, rather than looping them back to `/login`. Smoke-tested against the real Supabase project (unauthenticated `/` and `/users` both 307 to `/login`; `/login` renders 200) without using real credentials.
 - **2026-09-21** — Found (via a live diagnostic added to the `(dashboard)` layout after the active first admin still saw "Access restricted") that the layout's profile query was silently swallowing its Supabase error — `.single()`'s error was never checked, so a failed query and "no profile" were indistinguishable. Fixed that (switched to `.maybeSingle()` + explicit error capture, added temporary dev-only diagnostics), which surfaced the real root cause: `42501: permission denied for table profiles` — RLS was correctly configured, but `authenticated` had never been granted base table privileges on `profiles`/`leads`, so every request failed the privilege check before RLS was even evaluated. Wrote (not yet applied) `supabase/migrations/20260921140000_grant_table_privileges.sql` as a new migration — the already-applied initial migration is left untouched — granting `authenticated` `select, update` on `profiles` and full CRUD on `leads` (RLS still narrows both), with `anon` explicitly denied on both tables.
 - **2026-09-21** — Table-privilege migration applied to the remote project; admin login confirmed working end-to-end. Removed the temporary diagnostics from `(dashboard)/layout.tsx` (the always-on console log and the dev-only on-page panel), while keeping the underlying fix: the profile-lookup error is still captured (not discarded) and explicitly fails `isActiveAdmin` closed on a genuine query error, logging it server-side. **Phase 1 (Database & Auth Foundation) is complete.**
+- **2026-09-21** — Phase 2 (App Shell & Design System): added `clsx` + `tailwind-merge` (via a `cn()` helper in `src/lib/utils.ts`) and `lucide-react` as new dependencies — the only new dependencies added this phase, chosen for being small, standard, and load-bearing for a professional (not "generic tutorial") look. Built nine UI primitives under `src/components/ui/` and a six-piece app shell under `src/components/layout/` (sidebar, mobile drawer, topbar, account menu, and an `AppShell` client wrapper holding the shared mobile-nav-open state). `(dashboard)/layout.tsx` now renders `<AppShell>` instead of a bare header; its auth/authorization logic is untouched. All six existing routes restyled with static/demo content — `Users`/`Leads` search/filter/pagination controls are present but inert (no real CRUD), while `Settings` reuses the existing self-row profile read (already RLS-permitted, not new functionality) so the admin's own account section isn't showing fake data. Verified via `npm run build`/`lint` plus an unauthenticated smoke test (dev server); the authenticated shell itself could not be visually verified in this session since I don't have the admin's password — recommend a manual pass after logging in.
 
 ## Open Questions
 - Auth method: email/password only, or also magic link / OAuth (e.g., Google) for a smoother demo login?
