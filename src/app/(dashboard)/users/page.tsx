@@ -4,11 +4,11 @@ import { createClient } from "@/lib/supabase/server";
 import { listUsers } from "@/lib/users/queries";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { UsersToolbar } from "@/components/users/users-toolbar";
 import { PaginationControls } from "@/components/users/pagination-controls";
+import { InviteUserDialog } from "@/components/users/invite-user-dialog";
 
 const STATUS_VARIANT = {
   active: "success",
@@ -37,12 +37,7 @@ export default async function UsersPage({
           <h1 className="text-xl font-semibold text-gray-900">Users</h1>
           <p className="mt-1 text-sm text-gray-500">Manage admin and user accounts.</p>
         </div>
-        <div className="flex flex-col items-end gap-1">
-          <Button disabled title="Invites require elevated Supabase permissions not configured in this project">
-            Invite user
-          </Button>
-          <span className="text-xs text-gray-400">Coming later — requires elevated Supabase permissions</span>
-        </div>
+        <InviteUserDialog />
       </div>
 
       <Card>
