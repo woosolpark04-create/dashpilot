@@ -34,7 +34,16 @@ Phase 0 (Project Scaffolding) complete. **Phase 1 (Database & Auth Foundation) c
 - Added `clsx`, `tailwind-merge` (→ `cn()` helper in `src/lib/utils.ts`) and `lucide-react` (icons) as dependencies.
 - No database/RLS/auth changes in this phase.
 
-User management, leads management, and the dashboard's real statistics are not built yet — that's Phase 3+.
+**Phase 3 (Dashboard Statistics) complete:**
+- Overview page now renders real Supabase data instead of demo content: 4 stat cards (total users, total leads, active leads, won-this-month) and a "Recent leads" list (newest 5, real columns), each streamed independently via React `Suspense` with a `Skeleton`-based loading fallback.
+- Data-access layer added under `src/lib/dashboard/stats.ts` (`getOverviewStats`, `getRecentLeads`) — no large query blocks in page/component files; queries run under the existing admin session and existing RLS (no schema/RLS changes).
+- Each stat has a real period-over-period trend (this month vs last month); see Database Schema → Dashboard statistics for the exact definitions and the one documented limitation (Active leads' trend is a substitute metric, not a true historical comparison — no audit/history table exists to reconstruct a past point-in-time count).
+- Error handling: each section (stats, recent leads) fails independently and shows a polished "unavailable" state with a generic message plus the Postgres/PostgREST error *code* only (never the raw error message) — errors are logged server-side, never silently swallowed.
+- Empty state: if `leads` has zero rows, the existing `EmptyState` component renders — no fake rows are shown.
+- No database schema, RLS, or auth changes in this phase; `Users`/`Leads` pages remain static demo content (unchanged, out of scope) — that's Phase 4/5.
+- Verified via manual browser review against the live (empty) Supabase project: all four stat cards correctly show `0`/`$0` (Total users counts `role='user'` only, so the sole seeded admin correctly doesn't count), and Recent Leads correctly renders the `EmptyState` rather than any fake row.
+
+**Phase 3 is complete.** User management and leads management CRUD are not built yet — that's Phase 4/5.
 
 ## Tech Stack
 - **Framework:** Next.js (App Router)
@@ -102,7 +111,8 @@ dashpilot/
 │   │   │   ├── table.tsx               # Table, TableHeader, TableBody, TableRow, TableHead, TableCell
 │   │   │   ├── dialog.tsx              # Dialog (native <dialog>-based) + Header/Title/Description/Footer
 │   │   │   ├── empty-state.tsx
-│   │   │   └── skeleton.tsx
+│   │   │   ├── skeleton.tsx
+│   │   │   └── sparkline.tsx           # tiny inline SVG trend line, real data only
 │   │   ├── layout/                     # app shell (implemented, Phase 2)
 │   │   │   ├── app-shell.tsx           # client: holds shared mobile-nav-open state
 │   │   │   ├── sidebar.tsx             # persistent nav, desktop/tablet
@@ -110,7 +120,11 @@ dashpilot/
 │   │   │   ├── topbar.tsx
 │   │   │   ├── account-menu.tsx        # user menu + sign-out
 │   │   │   └── nav-items.ts            # shared nav config (Overview/Users/Leads/Settings)
-│   │   ├── dashboard/                  # stat cards, charts, summary widgets (Phase 3)
+│   │   ├── dashboard/                  # implemented, Phase 3
+│   │   │   ├── stats-cards.tsx         # real stat cards (async Server Component)
+│   │   │   ├── stats-cards-skeleton.tsx
+│   │   │   ├── recent-leads-card.tsx   # real "recent leads" list (async Server Component)
+│   │   │   └── recent-leads-skeleton.tsx
 │   │   ├── users/                      # user form, user filters (Phase 4 — table/list currently inline in the route)
 │   │   └── leads/                      # lead form, lead filters (Phase 5 — table/list currently inline in the route)
 │   ├── lib/
@@ -119,6 +133,8 @@ dashpilot/
 │   │   │   └── server.ts               # server component / server action client
 │   │   ├── auth/
 │   │   │   └── actions.ts              # login/logout server actions
+│   │   ├── dashboard/
+│   │   │   └── stats.ts                # overview stats + recent-leads data access (Phase 3)
 │   │   ├── validations/                # Zod schemas for forms and API input
 │   │   └── utils.ts                    # shared helpers (formatting, cn, etc.)
 │   ├── hooks/                          # client-side hooks (e.g., useDebouncedValue, useTablePagination)
@@ -189,7 +205,23 @@ Lightweight audit trail for admin actions on users/leads, useful for demoing "po
 | `created_at`  | timestamptz   | Default `now()`                             |
 
 ### Dashboard statistics
-No dedicated stats table for v1. The overview page computes aggregates on read (e.g., total users, total leads, leads by status, leads created this week) via SQL queries/views against `profiles` and `leads`. Revisit with a materialized view only if performance requires it.
+No dedicated stats table. The overview page computes aggregates on read via `src/lib/dashboard/stats.ts`, using the signed-in admin's own Supabase session (no service role, no schema/RLS changes). Exact definitions, as implemented:
+
+| Stat | Definition |
+|---|---|
+| Total users | `count(*)` from `profiles` where `role = 'user'` |
+| Total leads | `count(*)` from `leads`, unfiltered |
+| Active leads | `count(*)` from `leads` where `status in ('new','contacted','qualified')` |
+| Won this month | `sum(value_estimate)` from `leads` where `status = 'won'` and `created_at` is within the current calendar month (summed client-side over the matching rows — no DB-side `SUM`/view added) |
+
+Trend comparisons (this month vs previous calendar month, UTC month boundaries):
+- **Total users / Total leads**: count of rows *created* this month vs last month (a growth-rate signal, distinct from the cumulative headline value, which by definition never decreases).
+- **Won this month**: same definition, shifted to the previous month's date range.
+- **Active leads — documented limitation**: a true "vs previous month-end" comparison would require knowing what a lead's status *was* as of a past date, but the schema has no audit/history table recording status-over-time — only the *current* status plus `created_at` exist. Inventing that history was rejected. The substitute implemented instead is real and computable: among *currently* active leads, how many were created this month vs last month — a pipeline-freshness signal, not a point-in-time reconstruction. Revisit if `activity_log` (deferred, see Open Questions) is ever added.
+
+When the previous period's count/value is zero, the trend falls back to an absolute label (e.g., "+3 new users vs last month") instead of a percentage, to avoid a divide-by-zero or fabricated growth rate.
+
+Revisit with a dedicated view/materialized view only if performance requires it — not needed at current scale.
 
 ### Row Level Security
 **Implemented** for `profiles` and `leads` in `supabase/migrations/20260921130000_initial_schema.sql` (applied to the remote project):
@@ -240,8 +272,10 @@ This command is documented here and in the migration file as a placeholder only 
    - [x] Build the dashboard layout: responsive sidebar, topbar, mobile nav, account menu with sign-out, under `src/components/layout/`.
    - [x] Restyle all existing routes with static/placeholder content to lock in the visual design. No real data yet.
 
-4. **Phase 3 — Dashboard Statistics**
-   Build the overview page: stat cards (total users, total leads, leads by status, recent activity) backed by real aggregate queries.
+4. **Phase 3 — Dashboard Statistics** — complete
+   - [x] Real stat cards (total users, total leads, active leads, won this month) backed by live Supabase queries, each with a period-over-period trend.
+   - [x] Real "Recent leads" list (newest 5), with loading (`Suspense` + `Skeleton`), empty (`EmptyState`), and error states.
+   - [x] Data-access layer under `src/lib/dashboard/stats.ts`; presentation split into `src/components/dashboard/`.
 
 5. **Phase 4 — User Management**
    User list with search, filtering (by role/status), and pagination. User detail/edit view. Create/disable/update user records (CRUD against `profiles`).
@@ -275,6 +309,8 @@ Each phase should be completed and reviewed before starting the next. Update thi
 - **2026-09-21** — Found (via a live diagnostic added to the `(dashboard)` layout after the active first admin still saw "Access restricted") that the layout's profile query was silently swallowing its Supabase error — `.single()`'s error was never checked, so a failed query and "no profile" were indistinguishable. Fixed that (switched to `.maybeSingle()` + explicit error capture, added temporary dev-only diagnostics), which surfaced the real root cause: `42501: permission denied for table profiles` — RLS was correctly configured, but `authenticated` had never been granted base table privileges on `profiles`/`leads`, so every request failed the privilege check before RLS was even evaluated. Wrote (not yet applied) `supabase/migrations/20260921140000_grant_table_privileges.sql` as a new migration — the already-applied initial migration is left untouched — granting `authenticated` `select, update` on `profiles` and full CRUD on `leads` (RLS still narrows both), with `anon` explicitly denied on both tables.
 - **2026-09-21** — Table-privilege migration applied to the remote project; admin login confirmed working end-to-end. Removed the temporary diagnostics from `(dashboard)/layout.tsx` (the always-on console log and the dev-only on-page panel), while keeping the underlying fix: the profile-lookup error is still captured (not discarded) and explicitly fails `isActiveAdmin` closed on a genuine query error, logging it server-side. **Phase 1 (Database & Auth Foundation) is complete.**
 - **2026-09-21** — Phase 2 (App Shell & Design System): added `clsx` + `tailwind-merge` (via a `cn()` helper in `src/lib/utils.ts`) and `lucide-react` as new dependencies — the only new dependencies added this phase, chosen for being small, standard, and load-bearing for a professional (not "generic tutorial") look. Built nine UI primitives under `src/components/ui/` and a six-piece app shell under `src/components/layout/` (sidebar, mobile drawer, topbar, account menu, and an `AppShell` client wrapper holding the shared mobile-nav-open state). `(dashboard)/layout.tsx` now renders `<AppShell>` instead of a bare header; its auth/authorization logic is untouched. All six existing routes restyled with static/demo content — `Users`/`Leads` search/filter/pagination controls are present but inert (no real CRUD), while `Settings` reuses the existing self-row profile read (already RLS-permitted, not new functionality) so the admin's own account section isn't showing fake data. Verified via `npm run build`/`lint` plus an unauthenticated smoke test (dev server); the authenticated shell itself could not be visually verified in this session since I don't have the admin's password — recommend a manual pass after logging in.
+- **2026-09-21** — Phase 2 polish pass (post manual browser review): centered dashboard content to `max-w-6xl`, softened the sidebar/topbar (subtle neutral bg, lighter active-nav treatment, reduced height), added a real `Sparkline` primitive for stat-card trends, redesigned the "Recent leads" list (avatars, relative dates, dotted status badges — the `dot` prop added to `Badge` as an opt-in, so `Users`/`Leads` pages stayed visually unchanged), and replaced the developer-facing "Phase 3" placeholder copy with normal product copy. No auth/DB/RLS/route changes.
+- **2026-09-21** — Phase 3 (Dashboard Statistics): replaced all demo content on the Overview page with real Supabase queries. Added `src/lib/dashboard/stats.ts` (`getOverviewStats`, `getRecentLeads`) as the data-access layer, and `src/components/dashboard/{stats-cards,recent-leads-card}.tsx` (+ matching `-skeleton.tsx` fallbacks) as async Server Components streamed independently via React `Suspense` — this is what makes the existing `Skeleton` primitive actually show a loading state without any client-side JS. Each section fails independently and shows a generic message plus only the Postgres/PostgREST error *code* (never the raw message) on failure; errors are always logged server-side, never discarded. Zero leads renders the existing `EmptyState`, never fake rows. Documented the one trend that couldn't be computed as literally specified — "Active leads vs previous month-end" — since no audit/history table exists to reconstruct a past point-in-time status count; substituted an honest, computable proxy instead (see Database Schema → Dashboard statistics). No schema, RLS, or auth changes. Reused the same real-data pattern (2-point `[previous, current]` series) for sparklines rather than inventing a smooth historical shape.
 
 ## Open Questions
 - Auth method: email/password only, or also magic link / OAuth (e.g., Google) for a smoother demo login?

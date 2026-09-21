@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils";
 
 export interface SparklineProps {
   data: number[];
-  trend: "up" | "down";
+  trend: "up" | "down" | "flat";
   className?: string;
 }
 
@@ -51,7 +51,9 @@ export function Sparkline({ data, trend, className }: SparklineProps) {
         cx={lastX}
         cy={lastY}
         r={2}
-        className={trend === "up" ? "fill-emerald-500" : "fill-red-400"}
+        className={
+          trend === "up" ? "fill-emerald-500" : trend === "down" ? "fill-red-400" : "fill-gray-400"
+        }
       />
     </svg>
   );
