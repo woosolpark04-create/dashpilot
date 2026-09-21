@@ -170,6 +170,18 @@ No dedicated stats table for v1. The overview page computes aggregates on read (
 
 **Not yet implemented:** `activity_log` remains deferred (see Open Questions) — only `role = 'admin'` would read it, with inserts via server-side logic, if it's added.
 
+### Signup → profile bootstrap
+When Supabase Auth inserts a new row into `auth.users` (i.e., on signup), an `after insert` trigger (`on_auth_user_created` → `public.handle_new_user()`) automatically inserts a matching `public.profiles` row: `id`/`email` copied from the new auth user, `full_name` read from `raw_user_meta_data ->> 'full_name'` if present, and `role`/`status` **hardcoded** to `'user'`/`'active'` — never taken from user-supplied metadata, so nobody can hand themselves `role: admin` at signup. This function must be `SECURITY DEFINER` (not optional here): `profiles` has no `INSERT` policy for `authenticated`/`anon`, so without elevated privilege the insert would simply fail for every signup.
+
+### Bootstrapping the first admin
+No signup is ever auto-promoted, including the first one. After creating your own account through the app's normal signup flow, promote it to admin **once**, manually, via the Supabase SQL Editor:
+
+```sql
+update public.profiles set role = 'admin' where email = '<your-email>';
+```
+
+This command is documented here and in the migration file as a placeholder only — no real email or credential is stored in either place. Once that first admin exists (and stays `status = 'active'`), all further role/status management happens through the app itself via `is_admin()`-gated policies; no more manual SQL should be needed.
+
 ## Development Phases
 
 1. **Phase 0 — Project Scaffolding**
@@ -213,6 +225,7 @@ Each phase should be completed and reviewed before starting the next. Update thi
 - **2026-09-21** — Supabase connection scaffolding: installed `@supabase/supabase-js` and `@supabase/ssr`; added `src/lib/supabase/client.ts` (browser) and `src/lib/supabase/server.ts` (server, cookie-based). `.env.example` documents `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (the newer publishable-key naming, replacing the legacy anon-key naming); `SUPABASE_SERVICE_ROLE_KEY` intentionally omitted since nothing server-side needs elevated privileges yet. `.env.local` holds real project credentials locally and is gitignored.
 - **2026-09-21** — Phase 1 database foundation: added `supabase/migrations/20260921130000_initial_schema.sql` defining `profiles`, `leads`, `updated_at` triggers, RLS policies, and a `SECURITY DEFINER` `public.is_admin()` helper to avoid recursive RLS. A `before update` trigger blocks non-admins from changing their own `role`. Migration is written and lint/build-verified locally but **not yet applied** to the remote Supabase project. Auth UI and route protection remain pending.
 - **2026-09-21** — Hardened the same (still-unapplied) migration in place rather than layering on a second migration: `is_admin()` now also requires `status = 'active'` (so disabled admins lose admin access everywhere, including reactivating themselves) and pins `search_path = ''`; the guard trigger (renamed `guard_profiles_protected_fields()` / `enforce_profile_field_guard`) was broadened from role-only to block `id`/`created_at` changes for everyone and `email`/`role`/`status` changes for anyone who isn't an active admin, leaving only `full_name`/`avatar_url` freely self-editable. The guard function itself was demoted from `SECURITY DEFINER` to `SECURITY INVOKER` (least privilege — it only reads the row and delegates to `is_admin()`), and both `SECURITY DEFINER`/trigger functions had their default `PUBLIC` execute grants revoked.
+- **2026-09-21** — Added the signup → profile bootstrap: `public.handle_new_user()` (`SECURITY DEFINER`, required since `profiles` has no `INSERT` policy for `authenticated`/`anon`) fires `after insert` on `auth.users` and creates the matching `profiles` row with `role`/`status` hardcoded to `'user'`/`'active'` — never read from signup metadata, so a signup can't self-assign a role. No account is auto-promoted; the first admin is bootstrapped manually, once, via a documented `UPDATE` in the Supabase SQL Editor (placeholder email only — no real credential committed).
 
 ## Open Questions
 - Auth method: email/password only, or also magic link / OAuth (e.g., Google) for a smoother demo login?

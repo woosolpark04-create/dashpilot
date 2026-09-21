@@ -202,3 +202,63 @@ create policy "leads_admin_all"
   to authenticated
   using (public.is_admin())
   with check (public.is_admin());
+
+-- ---------------------------------------------------------------------------
+-- Bootstrap a profiles row on signup (auth.users -> public.profiles)
+-- ---------------------------------------------------------------------------
+
+-- RLS on `profiles` has no INSERT policy for `authenticated`/`anon` — by
+-- design, nobody self-inserts a profile row. Supabase Auth's own internal
+-- role performs the `auth.users` insert on signup, and it has no privilege
+-- (and no policy would grant one) to also insert into `public.profiles`.
+-- SECURITY DEFINER is therefore required here, not optional: without it this
+-- insert would fail for every signup. `role`/`status` are hardcoded rather
+-- than read from `raw_user_meta_data`, so a signing-up user cannot hand
+-- themselves `role: admin` (or any status) via signup metadata — only
+-- `full_name` is taken from metadata, and only as a display value.
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  insert into public.profiles (id, email, full_name, role, status)
+  values (
+    new.id,
+    new.email,
+    new.raw_user_meta_data ->> 'full_name',
+    'user',
+    'active'
+  );
+  return new;
+end;
+$$;
+
+-- Never meant to be called directly — only Supabase Auth's insert into
+-- auth.users should ever fire this, via the trigger below.
+revoke all on function public.handle_new_user() from public;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row
+  execute function public.handle_new_user();
+
+-- ---------------------------------------------------------------------------
+-- Bootstrapping the first admin (manual, one-time, not part of this migration)
+-- ---------------------------------------------------------------------------
+--
+-- No account is ever auto-promoted to admin — every new signup lands as
+-- role='user', status='active' via handle_new_user() above, with no
+-- exception for "the first user." After creating your own account through
+-- the app's normal signup flow, promote it to admin exactly once via the
+-- Supabase SQL Editor (never committed to a migration, since that would
+-- require baking a specific person's email into version control):
+--
+--   update public.profiles set role = 'admin' where email = '<your-email>';
+--
+-- Do this only after confirming the account exists in auth.users /
+-- public.profiles. From then on, `profiles_update_admin` and `is_admin()`
+-- let that admin (while status = 'active') promote/manage every other user
+-- through the app itself — no further manual SQL should be needed.
