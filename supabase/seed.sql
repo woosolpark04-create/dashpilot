@@ -1,0 +1,3 @@
+-- Demo/seed data for the DashPilot portfolio deployment.
+-- To be filled in during Phase 7 (Deployment & Portfolio Readiness),
+-- once the schema exists via migrations in supabase/migrations.

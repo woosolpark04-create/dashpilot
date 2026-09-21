@@ -20,7 +20,7 @@ Primary audience: prospective freelance clients evaluating the developer's abili
 - Native mobile app (responsive web only).
 
 ## Status
-Planning complete. No application code has been created yet. Next step is Phase 0 (project scaffolding).
+Phase 0 (Project Scaffolding) complete. Next.js (App Router) + TypeScript + Tailwind CSS + ESLint are set up under `src/`, the planned base folder structure exists, and `.env.example` documents the required Supabase variables. Lint and build both pass. No Supabase project is connected yet and no auth/database features are implemented — that begins in Phase 1.
 
 ## Tech Stack
 - **Framework:** Next.js (App Router)
@@ -43,7 +43,7 @@ Decisions on additional libraries (charts, tables, form handling, testing) shoul
 - Writes: Mutations (create/update/delete on users and leads) go through Next.js server actions or route handlers under `src/app/api/`, which validate input with Zod (`src/lib/validations/`) before writing to Supabase.
 - Browser-only interactions (e.g., auth state on the client) use the browser Supabase client (`src/lib/supabase/client.ts`).
 
-**Auth & access control.** Supabase Auth issues the session; `src/middleware.ts` checks the session on protected routes and redirects unauthenticated requests to `(auth)/login`. Authorization (admin vs. user) is enforced at the database layer via PostgreSQL Row Level Security policies, not just in application code, so access rules hold even if a query bypasses the app layer.
+**Auth & access control.** Supabase Auth issues the session; `src/proxy.ts` (Next.js's `proxy`/middleware convention) checks the session on protected routes and redirects unauthenticated requests to `(auth)/login`. Authorization (admin vs. user) is enforced at the database layer via PostgreSQL Row Level Security policies, not just in application code, so access rules hold even if a query bypasses the app layer.
 
 **Deployment topology.** The Next.js app deploys to Vercel; PostgreSQL, Auth, and RLS are managed by Supabase. No custom backend server — Supabase is the entire backend surface, accessed either directly (reads) or through Next.js server actions/route handlers (writes needing validation).
 
@@ -92,7 +92,7 @@ dashpilot/
 │   │   └── utils.ts                    # shared helpers (formatting, cn, etc.)
 │   ├── hooks/                          # client-side hooks (e.g., useDebouncedValue, useTablePagination)
 │   ├── types/                          # shared TypeScript types, generated Supabase types
-│   └── middleware.ts                   # route protection (redirect unauthenticated users)
+│   └── proxy.ts                        # route protection (Next.js proxy/middleware convention)
 ├── supabase/
 │   ├── migrations/                     # SQL migrations, source of truth for schema
 │   └── seed.sql                        # demo/seed data for portfolio presentation
@@ -203,6 +203,7 @@ Each phase should be completed and reviewed before starting the next. Update thi
 
 ## Decisions Log
 - **2026-09-21** — Project defined: DashPilot, a portfolio-oriented admin dashboard (Next.js/TypeScript/Tailwind/Supabase/PostgreSQL). Folder architecture, database schema, and phased roadmap established. No application code written yet.
+- **2026-09-21** — Phase 0 complete: scaffolded with `create-next-app` (Next.js 16.3.5, App Router, TypeScript, Tailwind CSS v4, ESLint). Installed Next.js renamed the middleware file convention to `proxy` (`src/proxy.ts` replaces the deprecated `src/middleware.ts`); PROJECT.md updated to match. No Supabase packages installed and no auth/DB logic added yet.
 
 ## Open Questions
 - Auth method: email/password only, or also magic link / OAuth (e.g., Google) for a smoother demo login?
