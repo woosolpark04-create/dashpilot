@@ -43,7 +43,18 @@ Phase 0 (Project Scaffolding) complete. **Phase 1 (Database & Auth Foundation) c
 - No database schema, RLS, or auth changes in this phase; `Users`/`Leads` pages remain static demo content (unchanged, out of scope) — that's Phase 4/5.
 - Verified via manual browser review against the live (empty) Supabase project: all four stat cards correctly show `0`/`$0` (Total users counts `role='user'` only, so the sole seeded admin correctly doesn't count), and Recent Leads correctly renders the `EmptyState` rather than any fake row.
 
-**Phase 3 is complete.** User management and leads management CRUD are not built yet — that's Phase 4/5.
+**Phase 3 is complete.**
+
+**Phase 4 / 4A (User Management) complete — verified via manual browser testing:** real profile data renders correctly, `full_name` editing works, search works, role/status filters work, the current admin cannot demote or disable their own account, and the user detail page works.
+- `/users` now lists real `profiles` rows (`full_name`, `email`, `role`, `status`, `created_at`) — all demo rows/counts removed.
+- Working search (`full_name`/`email`, case-insensitive `ilike`, debounced), role filter (all/admin/user), status filter (all/active/invited/disabled), and real server-side pagination (10/page, `Previous`/`Next`, "Showing X–Y of Z"). Search/filter/page state lives in the URL (`?q=&role=&status=&page=`), so it survives reload/back-forward and is shareable/bookmarkable.
+- `/users/[id]` shows real profile data (full name, email, role, status, joined date, last-updated date, user ID). Loading `error.code === "22P02"` (Postgres's "invalid UUID syntax" code) from a malformed `[id]` renders a clear "That doesn't look like a valid user ID" message rather than the generic query-failure one.
+- **Edit scope, narrowed in Phase 4A**: the edit form only allows `full_name`, `role`, and `status`. `email` is shown but **read-only** — deliberately not editable, since `profiles.email` and the Supabase Auth user's actual sign-in email are separate concerns that updating only one of would silently desync (a note under the field explains this). `avatar_url` editing (present in the initial Phase 4 pass) was also dropped to match this phase's narrower, explicit field list. `id`/`created_at` were never editable; `updated_at` remains fully automatic via the existing trigger.
+- Submits via a `'use server'` action (`updateUserAction`), using `useActionState` for inline success/error feedback (no page-reload redirect hack).
+- Route-level `loading.tsx` added for both `/users` and `/users/[id]` (Skeleton-based) — this is what makes navigations (search typing, filter changes, pagination, page-to-page) show a loading state, not just the initial load.
+- **Self-lockout guard** (application layer, in `updateUserAction`): an active admin cannot change their own role away from `admin` or their own status away from `active` — the action rejects the attempt with a clear message before touching the database. See "RLS/security issues discovered" below for why this can't be delegated to RLS/triggers.
+- **Invite user**: kept disabled with a "Coming later — requires elevated Supabase permissions" caption. Real invitations need `supabase.auth.admin.inviteUserByEmail()`, which requires a `service_role` key — explicitly out of scope, so nothing was wired up.
+- No RLS, grant, or schema changes were needed — the existing Phase 1 policies/grants/triggers already support everything Phase 4/4A needed. `Leads` page, app shell, and auth behavior all untouched.
 
 ## Tech Stack
 - **Framework:** Next.js (App Router)
@@ -125,7 +136,10 @@ dashpilot/
 │   │   │   ├── stats-cards-skeleton.tsx
 │   │   │   ├── recent-leads-card.tsx   # real "recent leads" list (async Server Component)
 │   │   │   └── recent-leads-skeleton.tsx
-│   │   ├── users/                      # user form, user filters (Phase 4 — table/list currently inline in the route)
+│   │   ├── users/                      # implemented, Phase 4
+│   │   │   ├── users-toolbar.tsx       # client: search (debounced) + role/status filters, URL-driven
+│   │   │   ├── pagination-controls.tsx # server component: Previous/Next links
+│   │   │   └── user-edit-form.tsx      # client: useActionState-driven edit form
 │   │   └── leads/                      # lead form, lead filters (Phase 5 — table/list currently inline in the route)
 │   ├── lib/
 │   │   ├── supabase/
@@ -135,6 +149,9 @@ dashpilot/
 │   │   │   └── actions.ts              # login/logout server actions
 │   │   ├── dashboard/
 │   │   │   └── stats.ts                # overview stats + recent-leads data access (Phase 3)
+│   │   ├── users/
+│   │   │   ├── queries.ts              # listUsers, getUserById (Phase 4)
+│   │   │   └── actions.ts              # updateUserAction, with self-lockout guard (Phase 4)
 │   │   ├── validations/                # Zod schemas for forms and API input
 │   │   └── utils.ts                    # shared helpers (formatting, cn, etc.)
 │   ├── hooks/                          # client-side hooks (e.g., useDebouncedValue, useTablePagination)
@@ -277,8 +294,11 @@ This command is documented here and in the migration file as a placeholder only 
    - [x] Real "Recent leads" list (newest 5), with loading (`Suspense` + `Skeleton`), empty (`EmptyState`), and error states.
    - [x] Data-access layer under `src/lib/dashboard/stats.ts`; presentation split into `src/components/dashboard/`.
 
-5. **Phase 4 — User Management**
-   User list with search, filtering (by role/status), and pagination. User detail/edit view. Create/disable/update user records (CRUD against `profiles`).
+5. **Phase 4 — User Management** — complete
+   - [x] User list with real search, role/status filtering, and server-side pagination (URL-preserved).
+   - [x] User detail view with real profile data.
+   - [x] Update user records (`full_name`, `role`, `status`) against `profiles`, with a self-lockout guard. `email` is read-only by design (see Decisions Log — Phase 4A); `avatar_url` editing was dropped in the Phase 4A narrowing.
+   - [ ] Create/invite and disable-via-auth-lifecycle are **not** implemented — real invitations need a `service_role` key, which is out of scope (see Decisions Log). "Disable" is covered by the existing `status` field, not a separate delete/deactivate flow.
 
 6. **Phase 5 — Leads Management**
    Lead list with search, filtering (by status/source), and pagination. Lead detail/edit view. Full CRUD, including status pipeline updates.
@@ -311,6 +331,8 @@ Each phase should be completed and reviewed before starting the next. Update thi
 - **2026-09-21** — Phase 2 (App Shell & Design System): added `clsx` + `tailwind-merge` (via a `cn()` helper in `src/lib/utils.ts`) and `lucide-react` as new dependencies — the only new dependencies added this phase, chosen for being small, standard, and load-bearing for a professional (not "generic tutorial") look. Built nine UI primitives under `src/components/ui/` and a six-piece app shell under `src/components/layout/` (sidebar, mobile drawer, topbar, account menu, and an `AppShell` client wrapper holding the shared mobile-nav-open state). `(dashboard)/layout.tsx` now renders `<AppShell>` instead of a bare header; its auth/authorization logic is untouched. All six existing routes restyled with static/demo content — `Users`/`Leads` search/filter/pagination controls are present but inert (no real CRUD), while `Settings` reuses the existing self-row profile read (already RLS-permitted, not new functionality) so the admin's own account section isn't showing fake data. Verified via `npm run build`/`lint` plus an unauthenticated smoke test (dev server); the authenticated shell itself could not be visually verified in this session since I don't have the admin's password — recommend a manual pass after logging in.
 - **2026-09-21** — Phase 2 polish pass (post manual browser review): centered dashboard content to `max-w-6xl`, softened the sidebar/topbar (subtle neutral bg, lighter active-nav treatment, reduced height), added a real `Sparkline` primitive for stat-card trends, redesigned the "Recent leads" list (avatars, relative dates, dotted status badges — the `dot` prop added to `Badge` as an opt-in, so `Users`/`Leads` pages stayed visually unchanged), and replaced the developer-facing "Phase 3" placeholder copy with normal product copy. No auth/DB/RLS/route changes.
 - **2026-09-21** — Phase 3 (Dashboard Statistics): replaced all demo content on the Overview page with real Supabase queries. Added `src/lib/dashboard/stats.ts` (`getOverviewStats`, `getRecentLeads`) as the data-access layer, and `src/components/dashboard/{stats-cards,recent-leads-card}.tsx` (+ matching `-skeleton.tsx` fallbacks) as async Server Components streamed independently via React `Suspense` — this is what makes the existing `Skeleton` primitive actually show a loading state without any client-side JS. Each section fails independently and shows a generic message plus only the Postgres/PostgREST error *code* (never the raw message) on failure; errors are always logged server-side, never discarded. Zero leads renders the existing `EmptyState`, never fake rows. Documented the one trend that couldn't be computed as literally specified — "Active leads vs previous month-end" — since no audit/history table exists to reconstruct a past point-in-time status count; substituted an honest, computable proxy instead (see Database Schema → Dashboard statistics). No schema, RLS, or auth changes. Reused the same real-data pattern (2-point `[previous, current]` series) for sparklines rather than inventing a smooth historical shape.
+- **2026-09-21** — Phase 4 (User Management): real search/filter/pagination against `public.profiles` (`src/lib/users/queries.ts`), URL-driven so state survives reload/back-forward. Search uses PostgREST `.ilike()` via `.or()`; search terms are double-quote-wrapped (PostgREST's documented escape) since `.or()`'s filter string itself uses commas/parens as delimiters — a raw search term containing either would otherwise have corrupted the query. **Security finding**: neither RLS nor the `guard_profiles_protected_fields` trigger prevents an active admin from demoting or disabling *themselves* — both only check "is the caller currently an active admin" via `is_admin()`, which (by Postgres MVCC/snapshot semantics, one snapshot per statement) still evaluates true against the pre-update row, right up until the update they're making commits. Per this phase's explicit instructions, this was deliberately handled at the application layer instead of by modifying RLS/the trigger: `updateUserAction` (`src/lib/users/actions.ts`) rejects a self-role-change-away-from-admin or self-status-change-away-from-active before ever calling `.update()`, with a clear explanatory message. This is a known layering gap worth a future DB-level hardening pass if this app's threat model ever changes (e.g., a future direct-SQL or different code path wouldn't have this app-layer check). Also discovered and documented in the UI: editing another user's `email` only changes the denormalized `profiles.email` copy, not their real Supabase Auth sign-in email — changing *someone else's* actual login email requires the Admin API (`service_role`), which is out of scope. "Invite user" stays disabled with a "coming later" caption for the same reason. No RLS, grants, or schema were modified — everything from Phase 1 already supported this phase's needs.
+- **2026-09-21** — Phase 4A (edit-scope narrowing, on top of Phase 4): the edit form's allowed fields were tightened to exactly `full_name`, `role`, `status` per this phase's explicit spec — `avatar_url` editing (added in the initial Phase 4 pass) was removed, and `email` was changed from editable to **read-only**, shown with an inline explanation (updating `profiles.email` alone would silently desync it from the Auth user's real sign-in email, which this app has no `service_role` access to also update). `updateUserAction` no longer reads or writes `avatar_url`/`email` from `formData` at all, so removing those inputs can't accidentally null out existing data. Also added `updated_at` to the user detail view (query + display) and a clearer message for a malformed `[id]` (Postgres `22P02` "invalid UUID syntax" → "That doesn't look like a valid user ID" instead of the generic query-failure text). No RLS/schema changes.
 
 ## Open Questions
 - Auth method: email/password only, or also magic link / OAuth (e.g., Google) for a smoother demo login?
