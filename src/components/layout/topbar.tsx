@@ -1,5 +1,6 @@
 "use client";
 
+import type { RefObject } from "react";
 import { Menu } from "lucide-react";
 import { AccountMenu } from "./account-menu";
 
@@ -8,12 +9,14 @@ export interface TopbarProps {
   name: string;
   email: string;
   logoutAction: () => void;
+  menuButtonRef?: RefObject<HTMLButtonElement | null>;
 }
 
-export function Topbar({ onMenuClick, name, email, logoutAction }: TopbarProps) {
+export function Topbar({ onMenuClick, name, email, logoutAction, menuButtonRef }: TopbarProps) {
   return (
     <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-gray-200/80 bg-white/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-white/75 md:px-8">
       <button
+        ref={menuButtonRef}
         type="button"
         onClick={onMenuClick}
         className="rounded-md p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900 md:hidden"

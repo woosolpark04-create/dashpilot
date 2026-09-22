@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, type RefObject } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { X } from "lucide-react";
@@ -9,15 +10,30 @@ import { NAV_ITEMS, isNavItemActive } from "./nav-items";
 export interface MobileNavProps {
   open: boolean;
   onClose: () => void;
+  /** Focused on close, so focus never lingers inside the now-hidden drawer. */
+  returnFocusRef?: RefObject<HTMLButtonElement | null>;
 }
 
-export function MobileNav({ open, onClose }: MobileNavProps) {
+export function MobileNav({ open, onClose, returnFocusRef }: MobileNavProps) {
   const pathname = usePathname();
+  const wasOpenRef = useRef(open);
+
+  useEffect(() => {
+    if (wasOpenRef.current && !open) {
+      returnFocusRef?.current?.focus();
+    }
+    wasOpenRef.current = open;
+  }, [open, returnFocusRef]);
 
   return (
     <div
       className={cn("fixed inset-0 z-40 md:hidden", open ? "pointer-events-auto" : "pointer-events-none")}
       aria-hidden={!open}
+      // `aria-hidden` alone hides the closed drawer from screen readers but
+      // doesn't stop a sighted keyboard user from tabbing into its
+      // off-screen (translate-x-full) links; `inert` removes it from the
+      // tab order too while closed.
+      inert={!open}
     >
       <div
         onClick={onClose}

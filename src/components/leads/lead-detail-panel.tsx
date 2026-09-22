@@ -176,7 +176,7 @@ function LeadEditFields({
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
           <label htmlFor="edit_full_name" className="block text-xs font-medium uppercase tracking-wide text-gray-500">
-            Full name
+            Full name<span aria-hidden="true" className="text-red-500"> *</span>
           </label>
           <Input
             id="edit_full_name"

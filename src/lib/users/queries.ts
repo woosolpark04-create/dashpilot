@@ -54,15 +54,13 @@ export async function listUsers(
   supabase: SupabaseClient,
   params: ListUsersParams,
 ): Promise<{ data: ListUsersResult | null; error: QueryFailure | null }> {
-  const page = parsePage(params.page);
-  const from = (page - 1) * USERS_PAGE_SIZE;
-  const to = from + USERS_PAGE_SIZE - 1;
+  let page = parsePage(params.page);
 
   const role = params.role && VALID_ROLES.has(params.role) ? params.role : undefined;
   const status = params.status && VALID_STATUSES.has(params.status) ? params.status : undefined;
   const search = params.search?.trim();
 
-  try {
+  function buildQuery() {
     let query = supabase
       .from("profiles")
       .select("id, full_name, email, role, status, created_at", { count: "exact" });
@@ -73,15 +71,64 @@ export async function listUsers(
       const term = quoteForOrFilter(`%${search}%`);
       query = query.or(`full_name.ilike.${term},email.ilike.${term}`);
     }
+    return query;
+  }
 
-    const { data, error, count } = await query.order("created_at", { ascending: false }).range(from, to);
+  // PostgREST's own response to an out-of-range offset — e.g. a bookmarked
+  // `?page=50` after most of those rows were deleted, or a filter that now
+  // matches far fewer rows — isn't an empty result, it's an error
+  // (`PGRST103: Requested range not satisfiable`). Rendering that as "Users
+  // unavailable" would be a confusing dead end for a request that's really
+  // just asking for a page number that no longer exists, so it's treated as
+  // a signal to clamp to the real last page and retry once.
+  const RANGE_NOT_SATISFIABLE = "PGRST103";
 
-    if (error) {
-      console.error("Failed to list users:", error);
-      return {
-        data: null,
-        error: { message: "We couldn't load the user list right now.", code: error.code },
-      };
+  try {
+    const from0 = (page - 1) * USERS_PAGE_SIZE;
+    const first = await buildQuery()
+      .order("created_at", { ascending: false })
+      .range(from0, from0 + USERS_PAGE_SIZE - 1);
+
+    let data = first.data;
+    let total = first.count ?? 0;
+
+    if (first.error) {
+      if (first.error.code !== RANGE_NOT_SATISFIABLE) {
+        console.error("Failed to list users:", first.error);
+        return {
+          data: null,
+          error: { message: "We couldn't load the user list right now.", code: first.error.code },
+        };
+      }
+
+      const { count, error: countError } = await buildQuery().range(0, 0);
+      if (countError) {
+        console.error("Failed to list users:", countError);
+        return {
+          data: null,
+          error: { message: "We couldn't load the user list right now.", code: countError.code },
+        };
+      }
+      total = count ?? 0;
+      data = [];
+    }
+
+    const lastPage = Math.max(1, Math.ceil(total / USERS_PAGE_SIZE));
+    if (page > lastPage) {
+      page = lastPage;
+      const from1 = (page - 1) * USERS_PAGE_SIZE;
+      const retry = await buildQuery()
+        .order("created_at", { ascending: false })
+        .range(from1, from1 + USERS_PAGE_SIZE - 1);
+
+      if (retry.error) {
+        console.error("Failed to list users:", retry.error);
+        return {
+          data: null,
+          error: { message: "We couldn't load the user list right now.", code: retry.error.code },
+        };
+      }
+      data = retry.data;
     }
 
     return {
@@ -94,7 +141,7 @@ export async function listUsers(
           status: row.status,
           createdAt: row.created_at,
         })),
-        total: count ?? 0,
+        total,
         page,
         pageSize: USERS_PAGE_SIZE,
       },

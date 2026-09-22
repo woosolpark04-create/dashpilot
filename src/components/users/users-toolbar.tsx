@@ -28,8 +28,13 @@ export function UsersToolbar() {
 
   // Debounce free-text search so every keystroke doesn't trigger a
   // navigation; role/status selects update immediately since they're
-  // discrete choices, not typed input.
+  // discrete choices, not typed input. Skipping the no-op case (search
+  // hasn't actually changed from the URL's current `q`) matters on mount:
+  // without it, this effect always fires once anyway and `updateParam`
+  // unconditionally strips `page`, silently bouncing a direct/shared/
+  // reloaded `?page=3` link back to page 1.
   useEffect(() => {
+    if (search === (searchParams.get("q") ?? "")) return;
     const handle = setTimeout(() => {
       updateParam("q", search || null);
     }, 300);
@@ -38,8 +43,15 @@ export function UsersToolbar() {
   }, [search]);
 
   return (
-    <div className="flex flex-col gap-3 border-b border-gray-100 p-4 sm:flex-row sm:items-center">
-      <div className="relative flex-1">
+    // flex-wrap (rather than forcing a single row) matters at in-between
+    // widths — e.g. tablet, or desktop with the sidebar taking real estate —
+    // where the two sm:w-44 selects alone can approach the toolbar's full
+    // width: without wrap, the search box (flex-1) doesn't shrink out of
+    // existence, but its *content* does, leaving an unusably narrow input.
+    // min-w on the search wrapper is the other half of that fix — it gives
+    // flex-wrap an actual floor to wrap around instead of one to shrink past.
+    <div className="flex flex-col flex-wrap gap-3 border-b border-gray-100 p-4 sm:flex-row sm:items-center">
+      <div className="relative min-w-[12rem] flex-1">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
         <Input
           placeholder="Search by name or email…"

@@ -108,9 +108,9 @@ export default async function LeadsPage({
                   {data.leads.map((lead) => (
                     <TableRow key={lead.id}>
                       <TableCell>
-                        <Link href={`/leads/${lead.id}`} className="block">
-                          <span className="font-medium text-gray-900">{lead.fullName}</span>
-                          <span className="block text-xs text-gray-500">
+                        <Link href={`/leads/${lead.id}`} className="block max-w-[16rem] sm:max-w-xs">
+                          <span className="block truncate font-medium text-gray-900">{lead.fullName}</span>
+                          <span className="block truncate text-xs text-gray-500">
                             {[lead.company, lead.email].filter(Boolean).join(" · ") || "No details on file"}
                           </span>
                         </Link>

@@ -81,7 +81,7 @@ function CreateLeadDialogContent({ onClose }: { onClose: () => void }) {
 
           <div>
             <label htmlFor="lead_full_name" className="block text-xs font-medium uppercase tracking-wide text-gray-500">
-              Full name
+              Full name<span aria-hidden="true" className="text-red-500"> *</span>
             </label>
             <Input id="lead_full_name" name="full_name" required disabled={isPending} className="mt-1" />
           </div>

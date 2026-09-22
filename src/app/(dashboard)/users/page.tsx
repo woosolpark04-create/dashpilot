@@ -55,12 +55,18 @@ export default async function UsersPage({
           <CardContent className="p-6">
             <EmptyState
               icon={UsersIcon}
-              title="No users match your filters"
-              description="Try a different search term, or clear your filters to see everyone."
+              title={params.q || params.role || params.status ? "No users match your filters" : "No users yet"}
+              description={
+                params.q || params.role || params.status
+                  ? "Try a different search term, or clear your filters to see everyone."
+                  : "Invited users will show up here once they accept."
+              }
               action={
-                <Link href="/users" className="text-sm font-medium text-gray-900 hover:underline">
-                  Clear filters
-                </Link>
+                (params.q || params.role || params.status) && (
+                  <Link href="/users" className="text-sm font-medium text-gray-900 hover:underline">
+                    Clear filters
+                  </Link>
+                )
               }
             />
           </CardContent>
@@ -82,9 +88,13 @@ export default async function UsersPage({
                   {data.users.map((user) => (
                     <TableRow key={user.id}>
                       <TableCell>
-                        <Link href={`/users/${user.id}`} className="block">
-                          <span className="font-medium text-gray-900">{user.fullName || "Unnamed user"}</span>
-                          <span className="block text-xs text-gray-500">{user.email || "No email on file"}</span>
+                        <Link href={`/users/${user.id}`} className="block max-w-[16rem] sm:max-w-xs">
+                          <span className="block truncate font-medium text-gray-900">
+                            {user.fullName || "Unnamed user"}
+                          </span>
+                          <span className="block truncate text-xs text-gray-500">
+                            {user.email || "No email on file"}
+                          </span>
                         </Link>
                       </TableCell>
                       <TableCell className="capitalize">{user.role}</TableCell>

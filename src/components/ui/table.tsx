@@ -32,9 +32,10 @@ export const TableRow = forwardRef<HTMLTableRowElement, HTMLAttributes<HTMLTable
 TableRow.displayName = "TableRow";
 
 export const TableHead = forwardRef<HTMLTableCellElement, ThHTMLAttributes<HTMLTableCellElement>>(
-  ({ className, ...props }, ref) => (
+  ({ className, scope = "col", ...props }, ref) => (
     <th
       ref={ref}
+      scope={scope}
       className={cn(
         "px-4 py-3 text-xs font-medium uppercase tracking-wide text-gray-500",
         className,

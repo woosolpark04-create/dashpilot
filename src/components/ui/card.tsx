@@ -21,7 +21,9 @@ CardHeader.displayName = "CardHeader";
 
 export const CardTitle = forwardRef<HTMLHeadingElement, HTMLAttributes<HTMLHeadingElement>>(
   ({ className, ...props }, ref) => (
-    <h3
+    // h2: every CardTitle sits directly under a page's h1, so this keeps
+    // the heading outline unbroken (h1 → h2) instead of skipping to h3.
+    <h2
       ref={ref}
       className={cn("text-sm font-semibold text-gray-900", className)}
       {...props}

@@ -1,7 +1,10 @@
 "use client";
 
 import {
+  createContext,
+  useContext,
   useEffect,
+  useId,
   useRef,
   type HTMLAttributes,
   type ReactNode,
@@ -16,11 +19,27 @@ export interface DialogProps {
   className?: string;
 }
 
+interface DialogIds {
+  titleId: string;
+  descriptionId: string;
+}
+
+const DialogIdsContext = createContext<DialogIds | null>(null);
+
 // Built on the native <dialog> element: showModal()/close() give us a
 // backdrop, focus trapping, and Escape-to-close for free, without an extra
 // dependency. We just keep the element's open state in sync with `open`.
+//
+// A modal <dialog> has no accessible name on its own — screen readers just
+// announce "dialog" unless it's explicitly labelled. `aria-labelledby`/
+// `aria-describedby` point at DialogTitle/DialogDescription's ids (shared
+// via context so callers don't have to wire ids up by hand); pointing at an
+// id that never renders — e.g. a dialog with no DialogDescription — is
+// harmless, per the ARIA spec.
 export function Dialog({ open, onOpenChange, children, className }: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  const descriptionId = useId();
 
   useEffect(() => {
     const dialog = ref.current;
@@ -36,6 +55,8 @@ export function Dialog({ open, onOpenChange, children, className }: DialogProps)
   return (
     <dialog
       ref={ref}
+      aria-labelledby={titleId}
+      aria-describedby={descriptionId}
       onClose={() => onOpenChange(false)}
       onCancel={() => onOpenChange(false)}
       onClick={(event) => {
@@ -54,7 +75,9 @@ export function Dialog({ open, onOpenChange, children, className }: DialogProps)
         className,
       )}
     >
-      <div onClick={(event) => event.stopPropagation()}>{children}</div>
+      <DialogIdsContext.Provider value={{ titleId, descriptionId }}>
+        <div onClick={(event) => event.stopPropagation()}>{children}</div>
+      </DialogIdsContext.Provider>
     </dialog>
   );
 }
@@ -68,12 +91,14 @@ export function DialogHeader({ className, ...props }: HTMLAttributes<HTMLDivElem
   );
 }
 
-export function DialogTitle({ className, ...props }: HTMLAttributes<HTMLHeadingElement>) {
-  return <h2 className={cn("text-sm font-semibold text-gray-900", className)} {...props} />;
+export function DialogTitle({ className, id, ...props }: HTMLAttributes<HTMLHeadingElement>) {
+  const ids = useContext(DialogIdsContext);
+  return <h2 id={id ?? ids?.titleId} className={cn("text-sm font-semibold text-gray-900", className)} {...props} />;
 }
 
-export function DialogDescription({ className, ...props }: HTMLAttributes<HTMLParagraphElement>) {
-  return <p className={cn("mt-1 text-sm text-gray-500", className)} {...props} />;
+export function DialogDescription({ className, id, ...props }: HTMLAttributes<HTMLParagraphElement>) {
+  const ids = useContext(DialogIdsContext);
+  return <p id={id ?? ids?.descriptionId} className={cn("mt-1 text-sm text-gray-500", className)} {...props} />;
 }
 
 export function DialogCloseButton({ onClose }: { onClose: () => void }) {
