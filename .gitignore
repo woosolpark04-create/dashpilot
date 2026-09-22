@@ -62,3 +62,6 @@ desktop.ini
 
 # Local env override
 .env.vault
+
+.vercel
+.env*
