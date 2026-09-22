@@ -2,15 +2,8 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getUserById } from "@/lib/users/queries";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { UserEditForm } from "@/components/users/user-edit-form";
-
-const STATUS_VARIANT = {
-  active: "success",
-  invited: "info",
-  disabled: "neutral",
-} as const;
+import { Card, CardContent } from "@/components/ui/card";
+import { UserDetailPanel } from "@/components/users/user-detail-panel";
 
 export default async function UserDetailPage({
   params,
@@ -52,71 +45,7 @@ export default async function UserDetailPage({
         </Card>
       )}
 
-      {!error && user && (
-        <>
-          <div className="flex items-center justify-between">
-            <h1 className="text-xl font-semibold text-gray-900">{user.fullName || "Unnamed user"}</h1>
-            <Badge variant={STATUS_VARIANT[user.status as keyof typeof STATUS_VARIANT] ?? "neutral"} dot>
-              {user.status}
-            </Badge>
-          </div>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Profile</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">Full name</dt>
-                  <dd className="mt-1 text-sm text-gray-900">{user.fullName || "—"}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">Email</dt>
-                  <dd className="mt-1 text-sm text-gray-900">{user.email || "—"}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">Role</dt>
-                  <dd className="mt-1 text-sm capitalize text-gray-900">{user.role}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">Joined</dt>
-                  <dd className="mt-1 text-sm text-gray-900">
-                    {new Date(user.createdAt).toLocaleDateString("en-US", {
-                      month: "long",
-                      day: "numeric",
-                      year: "numeric",
-                    })}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">Last updated</dt>
-                  <dd className="mt-1 text-sm text-gray-900">
-                    {new Date(user.updatedAt).toLocaleDateString("en-US", {
-                      month: "long",
-                      day: "numeric",
-                      year: "numeric",
-                    })}
-                  </dd>
-                </div>
-                <div className="sm:col-span-2">
-                  <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">User ID</dt>
-                  <dd className="mt-1 font-mono text-xs text-gray-500">{user.id}</dd>
-                </div>
-              </dl>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Edit user</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <UserEditForm user={user} isSelf={authUser?.id === user.id} />
-            </CardContent>
-          </Card>
-        </>
-      )}
+      {!error && user && <UserDetailPanel user={user} isSelf={authUser?.id === user.id} />}
     </div>
   );
 }

@@ -73,6 +73,22 @@ Phase 0 (Project Scaffolding) complete. **Phase 1 (Database & Auth Foundation) c
 - **Security**: no `SUPABASE_SECRET_KEY`/admin client anywhere in this flow (grep confirms `src/lib/supabase/admin.ts` is still only imported from `src/lib/users/actions.ts`); no RLS/migration changes; the invited user never gets a code path to set their own `role`/`status`.
 - **Verification split**: the surrounding states (`/set-password` with no session, `/auth/callback` with no/invalid params, the login page's success banner) were checked via Playwright automation; the real invite send → email → click → redeem → password-set → re-login cycle was run manually with a real inbox (per explicit instruction not to auto-submit a real invite through Playwright) and passed every step.
 
+**Phase 5 (Leads Management) complete — verified via Playwright (create/search/filter/paginate/edit/assign/delete, desktop + mobile) using clearly fictional test data, cleaned up afterward:** `/leads` and `/leads/[id]` now run entirely on real `public.leads` data — all demo rows and "Demo data shown" copy removed.
+- **Data-access layer** (`src/lib/leads/queries.ts`): `listLeads` (search across `full_name`/`company`/`email` via PostgREST `.or()` + the same double-quote escaping `users/queries.ts` uses, `status`/`source` `.eq()` filters, `created_at desc`, 10/page server-side pagination) and `getLeadById` (embeds the assigned profile via `assigned:profiles!assigned_to(id, full_name, email)`, with the same `22P02` → "That doesn't look like a valid lead ID" handling as `getUserById`). `listAssignableProfiles` restricts assignment candidates to `role='admin' AND status='active'` — leads are worked by staff, not by the platform users managed in `/users`.
+- **Validation** (`src/lib/leads/validation.ts`): this phase is what finally introduced **Zod** (added as a dependency), used to validate every create/edit field server-side — `full_name` required, `email` format-checked, `value_estimate` coerced/non-negative, `status`/`source` constrained to their known values, `assigned_to` UUID-checked. Empty optional fields (`""` from an unfilled input) are normalized to `undefined` before validation so they save as `null`, not empty strings.
+- **Mutations** (`src/lib/leads/actions.ts`): `createLeadAction`, `updateLeadAction`, `deleteLeadAction` all call `requireActiveAdmin()` (the same Phase 4B helper) against the normal session-scoped client before touching anything — no `SUPABASE_SECRET_KEY`/admin client anywhere in this phase, and RLS (`leads_admin_all`, already in place since Phase 1) is the only thing deciding whether the write is allowed. Each mutation revalidates `/leads`, `/` (Overview), and `/leads/[id]` where relevant, so Phase 3's stat cards and "Recent leads" pick up create/edit/delete without a manual refresh — confirmed live (adding a lead immediately moved Total leads/Active leads and populated Recent Leads).
+- **UI**: `CreateLeadDialog` (the existing `Dialog` primitive, widened to `max-w-lg` via its existing `className` override — no changes to `Dialog` itself) covers create; the detail page's edit form (originally `LeadEditForm`, later folded into `LeadDetailPanel` — see the UX-standardization note below) includes the `assigned_to` field the create dialog deliberately omits (matches the spec: invite-time and create-time both start unassigned/role-less). `DeleteLeadDialog` is a second `Dialog` consumer — a destructive-styled confirmation (reusing the `destructive` `Button` variant) that only deletes on explicit confirm, then redirects to `/leads?deleted=1` for a success banner (same query-flag pattern as the login page's post-password-reset message). Added one new primitive, `Textarea` (`src/components/ui/textarea.tsx`), styled to match `Input`, for the `notes` field.
+- **Reused rather than duplicated**: `PaginationControls` (Phase 4) is imported as-is from `src/components/users/` — it was already fully generic (URL/page-number logic, no user-specific code), so leads uses the same component instead of a copy. `formatCurrency` (Phase 3, `src/lib/dashboard/stats.ts`) is reused for the list and detail views' Est. value display.
+- **States**: route-level `loading.tsx` for both `/leads` and `/leads/[id]` (Skeleton-based, mirroring Users'); empty-vs-no-results copy distinguished by whether any filter/search param is active; query and mutation errors show a generic message (+ Postgres error code where applicable) and are always logged server-side, never the raw error text.
+- **Not changed**: no new migration — `leads_admin_all` RLS and the `authenticated` grants from Phase 1's two migrations already covered full CRUD; `.env.local` untouched.
+
+**Post-Phase-5 UX polish — standardized the explicit edit-mode pattern across every editable detail screen (Leads, Users):** both `/leads/[id]` and `/users/[id]` were read-only-plus-an-always-visible-edit-form before this pass; both now default to read-only with a header **Edit lead**/**Edit user** button that toggles the same card's content into a form with **Cancel**/**Save changes** — no editable inputs shown until the user explicitly asks for them.
+- **Shared, not duplicated**: `useEditMode()` (`src/hooks/use-edit-mode.ts` — the first thing to land in that previously-empty planned folder) centralizes the `isEditing`/`editSession`/`savedMessage` state machine (start/cancel/handleSaved) so both `LeadDetailPanel` and the new `UserDetailPanel` share one implementation of the toggle bookkeeping, while each still owns its own fields, layout, and security rules. `blockImplicitSubmit` (moved from a local helper into `src/lib/utils.ts`) is the shared `onKeyDown` guard: it calls `preventDefault()` only when Enter is pressed with an `<input>` focused, leaving `<textarea>` newlines and button activation untouched — used by both forms.
+- **`editSession` remount trick**: bumped every time "Edit" is clicked and passed as the edit form's React `key`, forcing a fresh mount (and a fresh `useActionState`) each time — so canceling then re-opening edit mode, or a failed save followed by leaving and re-entering, never leaks a stale error/pending state into the next attempt.
+- **`src/components/users/user-detail-panel.tsx`** replaces `user-edit-form.tsx` (deleted), following the exact shape of `lead-detail-panel.tsx`: same button placement/order (Cancel, then Save changes), same success-banner styling, same "Saving…" pending-label convention. All Phase 4/4A security behavior is unchanged and re-verified: `email` still rendered read-only with its original explanatory note, the self-lockout guard (`updateUserAction`) still rejects a self-role-change-away-from-admin or self-status-change-away-from-active with its original message, and `id`/`created_at` remain absent from the form entirely (never were editable).
+- **Settings intentionally untouched**: `/settings` has no editable fields today (pure read-only account summary + an "coming soon" placeholder) — per this pass's own instruction not to expand permissions, no edit mode was added there. It'll pick up the same pattern if/when a future phase actually adds editable profile fields.
+- **No schema/RLS/auth changes**: this was purely a client-side presentation refactor around the existing `updateLeadAction`/`updateUserAction` server actions, which are untouched.
+
 ## Tech Stack
 - **Framework:** Next.js (App Router)
 - **Language:** TypeScript
@@ -80,7 +96,7 @@ Phase 0 (Project Scaffolding) complete. **Phase 1 (Database & Auth Foundation) c
 - **Backend / Auth / DB:** Supabase (Auth, PostgreSQL, Row Level Security)
 - **Database:** PostgreSQL (via Supabase)
 - **Hosting (planned):** Vercel (app) + Supabase (managed DB/auth)
-- **Validation:** Zod (planned, for form and API input validation)
+- **Validation:** Zod (added in Phase 5, `src/lib/leads/validation.ts`) for lead create/edit server-side validation
 - **Data fetching:** Server Components + Supabase server client for reads; server actions or route handlers for mutations
 - **UI utilities:** `clsx` + `tailwind-merge` (via `cn()` in `src/lib/utils.ts`) for conditional class composition; `lucide-react` for icons
 - **`server-only`:** build-time guard ensuring `src/lib/supabase/admin.ts` (the `SUPABASE_SECRET_KEY`-based admin client) can never be imported into a Client Component
@@ -141,7 +157,8 @@ dashpilot/
 │   │   │   ├── dialog.tsx              # Dialog (native <dialog>-based) + Header/Title/Description/Footer
 │   │   │   ├── empty-state.tsx
 │   │   │   ├── skeleton.tsx
-│   │   │   └── sparkline.tsx           # tiny inline SVG trend line, real data only
+│   │   │   ├── sparkline.tsx           # tiny inline SVG trend line, real data only
+│   │   │   └── textarea.tsx            # implemented, Phase 5 — styled to match input.tsx
 │   │   ├── layout/                     # app shell (implemented, Phase 2)
 │   │   │   ├── app-shell.tsx           # client: holds shared mobile-nav-open state
 │   │   │   ├── sidebar.tsx             # persistent nav, desktop/tablet
@@ -156,26 +173,37 @@ dashpilot/
 │   │   │   └── recent-leads-skeleton.tsx
 │   │   ├── users/                      # implemented, Phase 4/4A/4B
 │   │   │   ├── users-toolbar.tsx       # client: search (debounced) + role/status filters, URL-driven
-│   │   │   ├── pagination-controls.tsx # server component: Previous/Next links
-│   │   │   ├── user-edit-form.tsx      # client: useActionState-driven edit form
+│   │   │   ├── pagination-controls.tsx # server component: Previous/Next links — reused as-is by leads/
+│   │   │   ├── user-detail-panel.tsx   # client: read-only ⇄ edit-mode toggle (useEditMode) + self-lockout guard UI
 │   │   │   └── invite-user-dialog.tsx  # client: Dialog + useActionState invite form (Phase 4B)
-│   │   └── leads/                      # lead form, lead filters (Phase 5 — table/list currently inline in the route)
+│   │   ├── leads/                      # implemented, Phase 5
+│   │   │   ├── leads-toolbar.tsx       # client: search (debounced) + status/source filters, URL-driven
+│   │   │   ├── create-lead-dialog.tsx  # client: Dialog + useActionState create form
+│   │   │   ├── lead-detail-panel.tsx   # client: read-only ⇄ edit-mode toggle (useEditMode), incl. assigned_to
+│   │   │   └── delete-lead-dialog.tsx  # client: Dialog + useActionState delete confirmation
+│   │   └── auth/                       # implemented, Phase 4C
+│   │       ├── auth-callback-client.tsx # client: invite-link token exchange
+│   │       └── set-password-form.tsx    # client: useActionState-driven password-setup form
 │   ├── lib/
 │   │   ├── supabase/
 │   │   │   ├── client.ts               # browser client
 │   │   │   ├── server.ts               # server component / server action client
 │   │   │   └── admin.ts                # SERVER-ONLY: SUPABASE_SECRET_KEY admin client (Phase 4B)
 │   │   ├── auth/
-│   │   │   ├── actions.ts              # login/logout server actions
-│   │   │   └── require-admin.ts        # requireActiveAdmin() — session-scoped authorization gate (Phase 4B)
+│   │   │   ├── actions.ts              # login/logout + setPasswordAction (Phase 4C) server actions
+│   │   │   └── require-admin.ts        # requireActiveAdmin() — session-scoped authorization gate (Phase 4B, reused by Phase 5's lead actions)
 │   │   ├── dashboard/
-│   │   │   └── stats.ts                # overview stats + recent-leads data access (Phase 3)
+│   │   │   └── stats.ts                # overview stats + recent-leads data access (Phase 3); formatCurrency reused by Phase 5
 │   │   ├── users/
 │   │   │   ├── queries.ts              # listUsers, getUserById (Phase 4)
 │   │   │   └── actions.ts              # updateUserAction (self-lockout guard) + inviteUserAction (Phase 4B)
-│   │   ├── validations/                # Zod schemas for forms and API input
-│   │   └── utils.ts                    # shared helpers (formatting, cn, etc.)
-│   ├── hooks/                          # client-side hooks (e.g., useDebouncedValue, useTablePagination)
+│   │   ├── leads/                      # implemented, Phase 5
+│   │   │   ├── queries.ts              # listLeads, getLeadById, listAssignableProfiles
+│   │   │   ├── validation.ts           # Zod schema — full CRUD input validation
+│   │   │   └── actions.ts              # createLeadAction, updateLeadAction, deleteLeadAction
+│   │   └── utils.ts                    # shared helpers (cn, blockImplicitSubmit, etc.)
+│   ├── hooks/
+│   │   └── use-edit-mode.ts            # implemented — shared read-only⇄edit-mode toggle state, used by leads/users detail panels
 │   ├── types/                          # shared TypeScript types, generated Supabase types
 │   └── proxy.ts                        # route protection (Next.js proxy/middleware convention)
 ├── supabase/
@@ -322,8 +350,14 @@ This command is documented here and in the migration file as a placeholder only 
    - [x] Invite user (Phase 4B): real `supabase.auth.admin.inviteUserByEmail()` via a server-only admin client, gated by an application-layer active-admin check. "Disable" is covered by the existing `status` field, not a separate delete/deactivate flow; auth-user deletion is still not implemented (not requested).
    - [x] Invite acceptance / password setup (Phase 4C): `/auth/callback` + `/set-password` let an invited user turn their emailed invite into a working login — verified end-to-end with a real invite email (invite link → session → password set → sign-out → sign back in with the new password), with `role='user'`/`status='active'` confirmed unchanged and no UI path to choose either during onboarding.
 
-6. **Phase 5 — Leads Management**
-   Lead list with search, filtering (by status/source), and pagination. Lead detail/edit view. Full CRUD, including status pipeline updates.
+6. **Phase 5 — Leads Management** — complete
+   - [x] Lead list with real search (`full_name`/`company`/`email`), status/source filtering, and server-side pagination (10/page, URL-preserved: `?q=&status=&source=&page=`).
+   - [x] Lead detail view with real data, including the assigned admin's name/email.
+   - [x] Create lead (`full_name`, `company`, `email`, `phone`, `source`, `status`, `value_estimate`, `notes`; defaults to `status='new'`), via the existing `Dialog` primitive, Zod-validated server-side.
+   - [x] Edit lead (same fields plus `assigned_to`), inline on the detail page.
+   - [x] Delete lead, with a confirmation dialog, success banner, and redirect back to `/leads`.
+   - [x] Assignment restricted to active admins (`profiles` where `role='admin' AND status='active'`) — leads are worked by staff, not the platform users managed in `/users`.
+   - [x] Overview stats/Recent Leads (Phase 3) confirmed to update live after create/edit/delete via `revalidatePath`.
 
 7. **Phase 6 — Polish Pass**
    Responsive QA across mobile/tablet/desktop, loading/empty/error states, form validation UX, accessibility pass (keyboard nav, focus states, contrast), and visual consistency review.
@@ -358,6 +392,8 @@ Each phase should be completed and reviewed before starting the next. Update thi
 - **2026-09-21** — Phase 4B (Invite User): this phase explicitly authorized and required the `SUPABASE_SECRET_KEY` admin client that every prior phase had deliberately avoided — added `src/lib/supabase/admin.ts`, guarded by the `server-only` package (build-time enforced, not just convention) and imported from exactly one place, `src/lib/users/actions.ts`. Authorization is a separate step, `requireActiveAdmin()` (`src/lib/auth/require-admin.ts`), run against the normal session-scoped client *before* the admin client is ever created — the secret key grants no authorization by itself. `full_name` goes to Supabase as auth metadata only; the inviter cannot set `role`/`status` — `handle_new_user()` (untouched, per this phase's explicit instruction) creates the resulting profile exactly as it does for self-signup. Noted a pre-existing schema/behavior mismatch without fixing it (also per explicit instruction): `profiles.status` has an `'invited'` value that would semantically fit better here than `'active'`, but the trigger doesn't distinguish invite-created accounts from self-signups — worth revisiting later. `NEXT_PUBLIC_SITE_URL` (new, optional, public) builds the invite email's `redirectTo`; documented that production needs both that env var set and the same URL allow-listed in the Supabase Dashboard. `SUPABASE_SECRET_KEY` added to `.env.example` only (empty, server-only warning) — never written to `.env.local`, which stays the user's manual step and remains confirmed gitignored.
 - **2026-09-21** — Phase 4C (Invite Acceptance / Password Setup): closed the loop Phase 4B left open — `/auth/callback` (client component, using the browser Supabase client) exchanges an invite link's tokens for a real session regardless of which of the three shapes Supabase sends them in (hash fragment, PKCE `code`, or OTP `token_hash`), then `/set-password` (server component + `setPasswordAction`) lets that session set a real password via `supabase.auth.updateUser()` before redirecting to `/login` with a success banner. `inviteUserAction`'s `redirectTo` now points at `/auth/callback` instead of `/login`. Neither route touches `SUPABASE_SECRET_KEY`, RLS, or `profiles.role`/`status` — `handle_new_user()` remains the only thing that ever sets those. `proxy.ts`'s `PUBLIC_PATHS` gained both routes so each can render its own "invalid link" / "session expired" state instead of the proxy's default redirect-to-login. The real invite-email → click → redeem cycle was left for manual testing, per explicit instruction not to auto-submit a real invite through Playwright.
 - **2026-09-21** — Phase 4C end-to-end verification: a real invite was sent and redeemed against the live Supabase project. Every step passed — invite link → `/auth/callback` session establishment → `/set-password` render → validation (short password rejected client-side, mismatched passwords rejected server-side) → valid password accepted → signed out → `/login` confirmation banner → re-login with the new password → confirmed via the admin Users list that the account is still exactly `role='user'`, `status='active'`. **Phase 4C is complete.**
+- **2026-09-21** — Phase 5 (Leads Management): replaced all demo lead content with real `public.leads` CRUD, following Phase 4's established patterns rather than inventing new ones — `src/lib/leads/{queries,actions}.ts` mirror `src/lib/users/{queries,actions}.ts`'s shape (same pagination/search-escaping approach, same `requireActiveAdmin()` gate, same generic-error-message/never-raw-Supabase-error discipline). This phase is what finally introduced **Zod** (`src/lib/leads/validation.ts`), which PROJECT.md had listed as "planned" since Phase 0 — full create/edit validation (required `full_name`, email format, non-negative `value_estimate`, constrained `status`/`source` enums, UUID-checked `assigned_to`) now runs server-side regardless of what the client sends. **Assignment scoping decision**: `assigned_to` is restricted to `profiles` where `role='admin' AND status='active'`, not to any authenticated profile — the platform users managed in `/users` are customers/managed accounts (per the Overview's own description), not staff who'd be assigned a sales lead. No new migration was needed: `leads_admin_all` RLS and the `authenticated` table grants from Phase 1 already covered every operation this phase needed (select/insert/update/delete). Reused rather than duplicated: `PaginationControls` (Phase 4, already fully generic) and `formatCurrency` (Phase 3). Added one new design-system primitive, `Textarea`, for the `notes` field — first new `components/ui/` addition since the Phase 2 polish pass's `Sparkline`. Verified via Playwright: create, search, status/source filters, empty/no-results states, real pagination (created 11 fictional test leads to force a second page), inline edit (including a bypassed-native-validation check that server-side Zod actually rejects a malformed email, not just the browser), assignment, delete (with cancel-doesn't-delete confirmed separately from confirm-does-delete), invalid-lead-id handling, and mobile layout for the list/dialog/detail/edit views — then all fictional test leads were deleted, restoring the empty state.
+- **2026-09-21** — Standardized the explicit edit-mode UX pattern across every editable detail screen: `/leads/[id]` and `/users/[id]` both default to read-only with a header **Edit lead**/**Edit user** button, Cancel discards and restores persisted values, Save is the only thing that submits, and Enter inside a text input no longer implicitly submits the form. Extracted the shared toggle bookkeeping into `useEditMode()` (`src/hooks/use-edit-mode.ts` — first use of that previously-empty planned folder) and the Enter-key guard into `blockImplicitSubmit` (`src/lib/utils.ts`), used by both `lead-detail-panel.tsx` and the new `user-detail-panel.tsx` (replacing `user-edit-form.tsx`) — the toggle state machine is shared, but each screen keeps its own fields/layout/security rules, per explicit instruction not to over-abstract. All Phase 4/4A user-security behavior re-verified unchanged: email still read-only, self-role/self-status lockout guard still rejects with its original message, `id`/`created_at` still never editable. `/settings` was left untouched — it has no editable fields today, and adding an edit mode where none exists would be expanding scope/permissions beyond what this pass was for.
 
 ## Open Questions
 - Auth method: email/password only, or also magic link / OAuth (e.g., Google) for a smoother demo login?

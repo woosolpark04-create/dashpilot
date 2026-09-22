@@ -24,6 +24,9 @@ dist/
 coverage/
 .nyc_output/
 
+# Playwright MCP local session artifacts (screenshots, traces)
+.playwright-mcp/
+
 # Debug / logs
 npm-debug.log*
 yarn-debug.log*
