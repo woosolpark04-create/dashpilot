@@ -73,7 +73,8 @@ accessibility, and responsive layout — not just a list and a form.
 - **Validation:** [Zod](https://zod.dev/)
 - **Testing:** Playwright MCP (browser-driven manual/exploratory QA across
   every feature and viewport)
-- **Deployment (planned):** Vercel
+- **Deployment:** [Vercel](https://vercel.com/) — live at
+  [dashpilot-sigma.vercel.app](https://dashpilot-sigma.vercel.app)
 
 ## Architecture
 
@@ -240,12 +241,18 @@ emails, or account information (see [Demo Data](#demo-data)).
 - **Phase 7A (Portfolio Demo Data): complete.**
 - **Phase 7B (Portfolio Documentation): complete** — this README, including
   real screenshots.
-- **Phase 7C (Production Deployment): in progress.** Code is
-  production-ready (no hardcoded localhost URLs; the invite redirect uses
-  `NEXT_PUBLIC_APP_URL`), but the app has not yet actually been deployed to
-  Vercel against a production Supabase instance — see `PROJECT.md` for the
-  detailed, phase-by-phase project history, the exact Supabase redirect URLs
-  to add post-deployment, and remaining open questions.
+- **Phase 7C (Production Deployment): complete.** Deployed to Vercel against
+  the production Supabase instance, with the full production QA plan
+  executed against the live deployment.
+- **Production deployed.**
+- **Production QA complete.**
+- **Portfolio-ready.**
+
+**Live production URL:** [https://dashpilot-sigma.vercel.app](https://dashpilot-sigma.vercel.app)
+
+See `PROJECT.md` for the detailed, phase-by-phase project history, the exact
+Supabase redirect URLs, the production QA results, a documented known issue,
+and remaining open questions.
 
 ## Portfolio Summary
 
