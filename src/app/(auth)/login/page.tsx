@@ -3,9 +3,9 @@ import { login } from "@/lib/auth/actions";
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; message?: string }>;
 }) {
-  const { error } = await searchParams;
+  const { error, message } = await searchParams;
 
   return (
     <main className="w-full max-w-sm rounded-lg border border-gray-200 bg-white p-8 shadow-sm">
@@ -14,6 +14,11 @@ export default async function LoginPage({
         Sign in with your DashPilot admin account.
       </p>
 
+      {message && (
+        <p className="mt-4 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+          {message}
+        </p>
+      )}
       {error && (
         <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
           {error}

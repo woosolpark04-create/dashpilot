@@ -44,7 +44,13 @@ export function Dialog({ open, onOpenChange, children, className }: DialogProps)
         }
       }}
       className={cn(
-        "w-full max-w-md rounded-lg border border-gray-200 bg-white p-0 shadow-lg backdrop:bg-gray-900/40",
+        // Native <dialog> centers itself via the UA stylesheet's `margin:
+        // auto` — but Tailwind's Preflight resets `margin` to 0 on every
+        // element, which silently breaks that and leaves the dialog pinned
+        // to the top-left corner. `fixed inset-0 m-auto` re-creates the
+        // centering explicitly (a fixed box with all insets at 0 and auto
+        // margins centers itself both axes), independent of the UA default.
+        "fixed inset-0 m-auto w-full max-w-md rounded-lg border border-gray-200 bg-white p-0 shadow-lg backdrop:bg-gray-900/40",
         className,
       )}
     >

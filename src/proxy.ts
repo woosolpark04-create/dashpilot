@@ -1,7 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-const PUBLIC_PATHS = ["/login"];
+// /auth/callback and /set-password are part of the invite-acceptance flow:
+// /auth/callback runs before any session exists (it's what creates one), and
+// /set-password needs to render its own "session expired" state for an
+// invalid/reused invite link rather than being bounced straight to /login.
+const PUBLIC_PATHS = ["/login", "/auth/callback", "/set-password"];
 
 // Session refresh + coarse route protection. This only checks "is there a
 // valid Supabase session" and redirects to /login when there isn't one.
