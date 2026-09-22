@@ -99,7 +99,7 @@ export async function updateUserAction(
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function getInviteRedirectUrl() {
-  const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  const configured = process.env.NEXT_PUBLIC_APP_URL?.trim();
   const base = configured ? configured.replace(/\/$/, "") : "http://localhost:3000";
   return `${base}/auth/callback`;
 }

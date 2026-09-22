@@ -175,7 +175,10 @@ Supabase project (never commit `.env.local`):
 
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
-- `NEXT_PUBLIC_SITE_URL` (optional — defaults to `http://localhost:3000`)
+- `NEXT_PUBLIC_APP_URL` (optional — the app's own public base URL, used to
+  build the invite email's redirect link; defaults to `http://localhost:3000`
+  if unset. Set this to your deployed domain in production, and allow-list
+  `<that domain>/auth/callback` in Supabase's Redirect URLs.)
 - `SUPABASE_SECRET_KEY` (server-only — required for the Invite User flow)
 
 ### Run locally
@@ -200,29 +203,49 @@ Postgres connection available) in filename order.
 
 Fictional demo data lives in `supabase/seed.sql` — a single, idempotent
 script (safe to re-run) that seeds sample leads. It does not create any
-demo user accounts; see the notes at the bottom of that file for the safe
-way to add one (through Supabase Auth itself, never a direct SQL insert
-into `profiles`).
+demo user accounts via SQL; see the notes at the bottom of that file for
+the safe way to add one (through Supabase Auth itself — the Admin API's
+`createUser`, never a direct SQL insert into `profiles`). One such fictional
+demo user (`jordan.lee@dashpilot.test`) was created this way for the
+screenshots below.
 
 ## Screenshots
 
-<!-- TODO: add screenshots before publishing. Suggested shots: -->
+All screenshots below use fictional demo data only — no real names,
+emails, or account information (see [Demo Data](#demo-data)).
 
-- **Overview** — _TODO: add screenshot_
-- **Users** — _TODO: add screenshot_
-- **Leads** — _TODO: add screenshot_
-- **User detail** — _TODO: add screenshot_
-- **Lead detail** — _TODO: add screenshot_
+### Overview
+
+![Overview — dashboard statistics and recent leads](public/screenshots/overview.png)
+
+### Users
+
+![Users — search, filter, and manage accounts](public/screenshots/users.png)
+
+### Leads
+
+![Leads — search, filter, and pipeline table](public/screenshots/leads.png)
+
+### User detail
+
+![User detail — profile view and edit mode](public/screenshots/user-detail.png)
+
+### Lead detail
+
+![Lead detail — full record view and edit mode](public/screenshots/lead-detail.png)
 
 ## Project Status
 
 - **Phases 1–6 (Database & Auth Foundation through Polish Pass): complete.**
 - **Phase 7A (Portfolio Demo Data): complete.**
-- **Phase 7B (Portfolio Documentation): in progress — this README.**
-- **Deployment and production QA: pending.** The app has not yet been
-  deployed to Vercel against a production Supabase instance; see
-  `PROJECT.md` for the detailed, phase-by-phase project history and the
-  remaining open questions.
+- **Phase 7B (Portfolio Documentation): complete** — this README, including
+  real screenshots.
+- **Phase 7C (Production Deployment): in progress.** Code is
+  production-ready (no hardcoded localhost URLs; the invite redirect uses
+  `NEXT_PUBLIC_APP_URL`), but the app has not yet actually been deployed to
+  Vercel against a production Supabase instance — see `PROJECT.md` for the
+  detailed, phase-by-phase project history, the exact Supabase redirect URLs
+  to add post-deployment, and remaining open questions.
 
 ## Portfolio Summary
 
