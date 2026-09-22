@@ -1,0 +1,21 @@
+-- Grants `service_role` the base table privileges it needs to operate on
+-- `public.leads` directly. Discovered while running Phase 7A's demo-data
+-- seed script (via the existing SUPABASE_SECRET_KEY admin client,
+-- src/lib/supabase/admin.ts) — it failed with `42501: permission denied for
+-- table leads`, even though `service_role` already bypasses RLS by design.
+--
+-- This does not touch RLS or weaken any policy: `service_role` already
+-- bypasses RLS entirely (that's the whole point of the role) — this only
+-- grants the separate, lower-level table privilege that Postgres checks
+-- *before* RLS is even evaluated. Same two-layer distinction documented in
+-- the Phase 1 grant migration (20260921140000_grant_table_privileges.sql)
+-- for `authenticated`; that migration never touched `service_role`, since
+-- nothing had needed direct table access with that key until now — Phase
+-- 4B's admin-client usage only ever called the Auth Admin API
+-- (`inviteUserByEmail`), which doesn't go through this table-grant path at
+-- all.
+--
+-- Scoped to `leads` only, matching exactly what this phase needs — not
+-- `profiles`, which this phase's seed script never touches.
+grant usage on schema public to service_role;
+grant select, insert, update, delete on public.leads to service_role;
